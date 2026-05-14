@@ -1,6 +1,6 @@
 /**
  * Webhook IXC — recebe notificações de novos chamados
- * Configurar no IXC: Parâmetros → Notificações → URL: https://glc-atende.railway.app/api/ixc/webhook
+ * Configurar no IXC: Parâmetros → Notificações → URL: https://atende.glcinternet.com.br/api/ixc/webhook
  */
 import { NextRequest, NextResponse } from "next/server";
 
@@ -8,14 +8,15 @@ import { NextRequest, NextResponse } from "next/server";
 async function notificarWhatsApp(mensagem: string) {
   const evolutionUrl = process.env.EVOLUTION_API_URL;
   const evolutionKey = process.env.EVOLUTION_API_KEY;
-  const telefoneGilson = process.env.TELEFONE_GILSON || "5511912246595";
+  const evolutionInstance = process.env.EVOLUTION_INSTANCE || "glc";
+  const telefoneGilson = process.env.TELEFONE_GILSON;
 
-  if (!evolutionUrl) {
+  if (!evolutionUrl || !evolutionKey || !telefoneGilson) {
     console.log(`[WhatsApp] ${mensagem}`);
     return;
   }
 
-  await fetch(`${evolutionUrl}/message/sendText/glc`, {
+  await fetch(`${evolutionUrl}/message/sendText/${evolutionInstance}`, {
     method:  "POST",
     headers: { "Content-Type": "application/json", "apikey": evolutionKey || "" },
     body:    JSON.stringify({ number: telefoneGilson, text: mensagem }),
@@ -25,7 +26,6 @@ async function notificarWhatsApp(mensagem: string) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    console.log("[IXC Webhook]", JSON.stringify(body).slice(0, 200));
 
     // IXC pode enviar em diferentes formatos
     const chamado = body.chamado || body.oss || body;
@@ -33,6 +33,9 @@ export async function POST(req: NextRequest) {
     const cliente    = chamado.nome_cliente || chamado.customer   || "Cliente";
     const prioridade = chamado.prioridade   || chamado.priority   || "M";
     const id         = chamado.id           || chamado.ticket_id  || "?";
+
+    // LGPD: não registrar payload bruto do IXC, pois pode conter dados pessoais.
+    console.log("[IXC Webhook] chamado recebido", { id, prioridade });
 
     const prioLabel: Record<string, string> = { A: "🔴 URGENTE", M: "🟡 Médio", B: "🟢 Baixo" };
     const emoji = prioLabel[prioridade] || "📋";

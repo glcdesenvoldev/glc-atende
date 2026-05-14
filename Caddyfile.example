@@ -1,0 +1,14 @@
+# Exemplo para publicar o GLC Atende com HTTPS automático via Caddy.
+# Troque atende.glcinternet.com.br pelo domínio real.
+
+atende.glcinternet.com.br {
+  encode gzip zstd
+
+  reverse_proxy 127.0.0.1:3000
+
+  header {
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "no-referrer"
+    X-Frame-Options "DENY"
+  }
+}

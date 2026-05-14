@@ -1,6 +1,42 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GLC Atende
 
-## Getting Started
+Painel inicial de atendimento da GLC Internet, com leitura de chamados do IXC Soft e webhook para notificação via Evolution API/WhatsApp.
+
+## Variáveis de ambiente
+
+Copie `.env.example` e configure os valores reais no ambiente local/Railway:
+
+```bash
+cp .env.example .env.local
+```
+
+Obrigatórias para IXC real:
+
+- `IXC_URL`
+- `IXC_TOKEN`
+
+Obrigatórias para disparo via WhatsApp:
+
+- `EVOLUTION_API_URL`
+- `EVOLUTION_API_KEY`
+- `EVOLUTION_INSTANCE`
+- `TELEFONE_GILSON`
+
+Sem `IXC_TOKEN`, o painel usa dados mockados para desenvolvimento. Sem credenciais completas da Evolution API, o webhook apenas registra a mensagem no log e não envia WhatsApp.
+
+⚠️ Não commitar `.env`, tokens, senhas ou chaves.
+
+## Healthcheck Railway
+
+O Railway usa:
+
+```txt
+/api/ixc/webhook
+```
+
+O método `GET` desta rota retorna status 200 para healthcheck. O IXC deve chamar a mesma rota via `POST`.
+
+## Desenvolvimento local
 
 First, run the development server:
 

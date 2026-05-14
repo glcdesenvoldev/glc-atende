@@ -5,20 +5,24 @@
  * usa dados do banco local (populados via webhook ou importação manual)
  */
 
-const IXC_BASE   = process.env.IXC_URL   || "https://ixc.glcinternet.com.br/webservice/v1";
-const IXC_TOKEN  = process.env.IXC_TOKEN || "10:5f3f53e8b228fd26f5b07ff6163334591edfc9871043bcedc719650361a32bcd";
+const IXC_BASE = process.env.IXC_URL || "https://ixc.glcinternet.com.br/webservice/v1";
+const IXC_TOKEN = process.env.IXC_TOKEN;
 
 function getAuthHeader() {
+  if (!IXC_TOKEN) return null;
   const b64 = Buffer.from(IXC_TOKEN).toString("base64");
   return `Basic ${b64}`;
 }
 
 async function ixcRequest<T>(endpoint: string, body?: object): Promise<T | null> {
   try {
+    const auth = getAuthHeader();
+    if (!auth) return null;
+
     const res = await fetch(`${IXC_BASE}/${endpoint}`, {
       method:  body ? "POST" : "GET",
       headers: {
-        "Authorization": getAuthHeader(),
+        "Authorization": auth,
         "Content-Type":  "application/json",
         "Accept":        "application/json",
         "ixcsoft":       "listar",
