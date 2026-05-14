@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Headphones, RefreshCw, AlertCircle, Clock, CheckCircle2, Loader2, MessageCircle, User, ChevronDown, ChevronUp, Send } from "lucide-react";
+import { Headphones, RefreshCw, AlertCircle, Clock, CheckCircle2, Loader2, User, ChevronDown, ChevronUp, Send } from "lucide-react";
 
 interface Chamado {
   id: string;
@@ -20,8 +20,8 @@ const prioConfig: Record<string, { label: string; cls: string; icon: React.React
   B: { label: "Baixo",    cls: "bg-sky-500/10 text-sky-400 border-sky-500/20",        icon: <CheckCircle2 className="w-3 h-3" /> },
 };
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
+function timeAgo(dateStr: string, now: number): string {
+  const diff = now - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "agora";
   if (mins < 60) return `${mins}min`;
@@ -45,6 +45,7 @@ export default function ChamadosPage() {
   const [sending,   setSending]   = useState<string | null>(null);
   const [filtro,    setFiltro]    = useState("todos");
   const [lastUpdate, setLastUpdate] = useState(new Date().toLocaleTimeString("pt-BR"));
+  const [now, setNow] = useState(() => Date.now());
 
   const fetch_ = useCallback(async () => {
     setLoading(true);
@@ -60,10 +61,18 @@ export default function ChamadosPage() {
   }, []);
 
   useEffect(() => {
-    fetch_();
+    const t = setTimeout(fetch_, 0);
     const iv = setInterval(fetch_, 60000);
-    return () => clearInterval(iv);
+    return () => {
+      clearTimeout(t);
+      clearInterval(iv);
+    };
   }, [fetch_]);
+
+  useEffect(() => {
+    const iv = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(iv);
+  }, []);
 
   const handleResponder = async (id: string) => {
     if (!resposta[id]?.trim()) return;
@@ -119,7 +128,7 @@ export default function ChamadosPage() {
         ) : filtered.map(c => {
           const prio = prioConfig[c.prioridade] || prioConfig.M;
           const isOpen = expanded === c.id;
-          const mins = Math.floor((Date.now() - new Date(c.data_abertura).getTime()) / 60000);
+          const mins = Math.floor((now - new Date(c.data_abertura).getTime()) / 60000);
 
           return (
             <div key={c.id} className={`bg-[#1E3050] rounded-2xl border transition-all ${
@@ -139,7 +148,7 @@ export default function ChamadosPage() {
                       <User className="w-3 h-3" />{c.nome_cliente}
                       <span className="text-[#2A4060]">·</span>
                       <Clock className="w-3 h-3" />
-                      <span className={mins > 60 ? "text-rose-400 font-medium" : ""}>{timeAgo(c.data_abertura)}</span>
+                      <span className={mins > 60 ? "text-rose-400 font-medium" : ""}>{timeAgo(c.data_abertura, now)}</span>
                     </p>
                   </div>
                 </div>
