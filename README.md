@@ -22,6 +22,28 @@ Obrigatórias para disparo via WhatsApp:
 - `EVOLUTION_INSTANCE`
 - `TELEFONE_GILSON`
 
+Obrigatórias para o bot interno do Telegram:
+
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_WEBHOOK_SECRET`
+- `TELEGRAM_ALLOWED_USERS` — IDs dos usuários autorizados, separados por vírgula.
+- `TELEGRAM_ALLOWED_GROUPS` ou `TELEGRAM_GROUP_ID` — ID do grupo privado autorizado.
+
+Comandos iniciais do Telegram:
+
+- `/chamados` — lista chamados abertos.
+- `/cliente ID|telefone|nome` — consulta cliente.
+- `/faturas ID_CLIENTE` — lista faturas abertas/localizadas.
+- `/pix` e `/boleto` ficam bloqueados nesta fase por segurança; primeiro validar endpoints e permissões.
+
+Webhook do Telegram:
+
+```txt
+/api/telegram/webhook
+```
+
+Ao configurar o webhook no BotFather/API Telegram, usar `TELEGRAM_WEBHOOK_SECRET` no header `secret_token`.
+
 Sem `IXC_TOKEN`, o painel usa dados mockados para desenvolvimento. Sem credenciais completas da Evolution API, o webhook apenas registra a mensagem no log e não envia WhatsApp.
 
 ⚠️ Não commitar `.env`, tokens, senhas ou chaves.
