@@ -13,6 +13,8 @@ services:
       HOSTNAME: 0.0.0.0
     ports:
       - "127.0.0.1:3000:3000"
+    volumes:
+      - ./data:/app/data
     labels:
       traefik.enable: "true"
       traefik.http.routers.glc-atende.rule: "Host(`atende.glcinternet.com.br`)"
