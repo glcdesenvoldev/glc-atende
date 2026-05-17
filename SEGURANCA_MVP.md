@@ -53,3 +53,45 @@ Header: x-glc-webhook-secret: SEGREDO_FORTE_AQUI
 ## Atenção operacional
 
 Não fazer deploy sem configurar as variáveis de segurança. Caso contrário, o dashboard/API retornarão erro de autenticação/configuração e o webhook IXC recusará POST sem segredo.
+
+## Monitor IXC por API
+
+Endpoint protegido:
+
+```text
+GET/POST /api/monitor/ixc?secret=MONITOR_SECRET
+```
+
+Variável obrigatória:
+
+```env
+MONITOR_SECRET=SEGREDO_FORTE_DO_MONITOR
+```
+
+Uso recomendado após deploy:
+
+1. Rodar uma vez em modo baseline para marcar chamados já existentes sem notificar:
+
+```text
+https://atende.glcinternet.com.br/api/monitor/ixc?secret=MONITOR_SECRET&baseline=1
+```
+
+2. Depois agendar chamada a cada 1 minuto:
+
+```text
+https://atende.glcinternet.com.br/api/monitor/ixc?secret=MONITOR_SECRET
+```
+
+3. Para teste sem gravar deduplicação:
+
+```text
+https://atende.glcinternet.com.br/api/monitor/ixc?secret=MONITOR_SECRET&dryRun=1
+```
+
+O monitor:
+
+- consulta chamados abertos no IXC;
+- detecta IDs ainda não notificados;
+- alerta o grupo Telegram;
+- registra auditoria em `DATA_DIR/audit/events.jsonl`;
+- usa deduplicação em `DATA_DIR/audit/ixc-chamados-notified.txt`.
