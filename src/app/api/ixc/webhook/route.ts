@@ -8,6 +8,7 @@ import { appendFile, mkdir, readFile } from "fs/promises";
 import { dirname } from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { sendTelegramMessage } from "@/lib/telegram";
+import { validateSharedSecret } from "@/lib/security";
 
 type WebhookChamado = {
   id: string;
@@ -38,6 +39,9 @@ async function notificarWhatsApp(mensagem: string) {
 }
 
 export async function POST(req: NextRequest) {
+  const secretError = validateSharedSecret(req, "IXC_WEBHOOK_SECRET");
+  if (secretError) return secretError;
+
   try {
     const body = await req.json();
     const chamado = normalizeChamado(body);
