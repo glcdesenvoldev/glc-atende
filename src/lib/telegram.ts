@@ -1,3 +1,4 @@
+import { appendAudit } from "@/lib/audit";
 import { ixcApi, type IxcChamado, type IxcCliente, type IxcFatura } from "@/lib/ixc";
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
@@ -59,12 +60,14 @@ export async function handleTelegramUpdate(update: TelegramUpdate) {
 
   if (!message || !actor || !chatId) return { ok: true, ignored: "empty_update" };
   if (!isAuthorized(actor.id, chatId, message.chat.type)) {
+    await appendAudit({ source: "telegram", action: "unauthorized", userId: actor.id, chatId, chatType: message.chat.type });
     await sendTelegramMessage(chatId, "⚠️ Acesso não autorizado neste bot.");
     return { ok: true, ignored: "unauthorized" };
   }
 
   if (update.callback_query?.data) {
     await handleCallback(chatId, update.callback_query.data);
+    await appendAudit({ source: "telegram", action: "callback", userId: actor.id, chatId, data: update.callback_query.data });
     return { ok: true };
   }
 
@@ -72,6 +75,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate) {
   if (!text) return { ok: true, ignored: "no_text" };
 
   await handleCommand(chatId, text);
+  await appendAudit({ source: "telegram", action: "command", userId: actor.id, chatId, command: text.split(/\s+/)[0] });
   return { ok: true };
 }
 
@@ -202,9 +206,17 @@ export async function sendTelegramMessage(chatId: string | number, text: string,
 
 function isAuthorized(userId: number, chatId: number, chatType: string) {
   const { allowedUsers, allowedGroups } = getTelegramConfig();
-  const userAllowed = allowedUsers.length === 0 || allowedUsers.includes(String(userId));
+  const user = String(userId);
+  const olindo = process.env.ID_TELEGRAM_OLINDO;
+
+  const userAllowed = allowedUsers.length === 0 || allowedUsers.includes(user);
   const groupAllowed = chatType === "private" || allowedGroups.length === 0 || allowedGroups.includes(String(chatId));
-  return userAllowed && groupAllowed;
+  if (!userAllowed || !groupAllowed) return false;
+
+  // Olindo: somente no grupo autorizado e em horário comercial de Brasília.
+  if (olindo && user === olindo) return chatType !== "private" && isBusinessHoursSaoPaulo();
+
+  return true;
 }
 
 function parseCsvIds(value?: string) {
@@ -212,6 +224,20 @@ function parseCsvIds(value?: string) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function isBusinessHoursSaoPaulo() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    weekday: "short",
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const weekday = parts.find((part) => part.type === "weekday")?.value || "";
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || "0");
+  const isWeekday = !["Sat", "Sun"].includes(weekday);
+  return isWeekday && hour >= 8 && hour < 18;
 }
 
 function helpText() {
