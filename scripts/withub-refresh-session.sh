@@ -31,3 +31,8 @@ ln -sfn "$TOOLS_DIR/node_modules/playwright" node_modules/playwright
 ln -sfn "$TOOLS_DIR/node_modules/playwright-core" node_modules/playwright-core
 
 node scripts/withub-map.mjs
+
+if [ -f "$WITHUB_OUT_DIR/storage-state.json" ]; then
+  chown 1001:1001 "$WITHUB_OUT_DIR/storage-state.json" 2>/dev/null || true
+  chmod 600 "$WITHUB_OUT_DIR/storage-state.json" 2>/dev/null || true
+fi
