@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+import { writeFile, mkdir } from 'node:fs/promises';
+const outDir=process.env.WITHUB_OUT_DIR||'data/withub'; await mkdir(outDir,{recursive:true});
+const browser=await chromium.launch({headless:true});
+const context=await browser.newContext({storageState:`${outDir}/storage-state.json`});
+const page=await context.newPage();
+await page.goto('https://app.withub.ai/backoffice',{waitUntil:'domcontentloaded'});
+await page.waitForLoadState('networkidle').catch(()=>null);
+const entries=await page.evaluate(()=>performance.getEntriesByType('resource').map(e=>e.name).filter(n=>/\.js(\?|$)|chunk|main|runtime/i.test(n)));
+await writeFile(`${outDir}/assets.json`, JSON.stringify(entries,null,2));
+await browser.close();
+console.log(entries.slice(0,50).join('\n'));

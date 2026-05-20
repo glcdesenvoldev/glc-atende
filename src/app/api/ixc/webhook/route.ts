@@ -43,9 +43,10 @@ export async function POST(req: NextRequest) {
   if (secretError) return secretError;
 
   try {
-    const body = await req.json();
+    const body: unknown = await req.json();
+    const bodyRecord = asRecord(body);
     const chamado = normalizeChamado(body);
-    const dryRun = req.headers.get("x-glc-dry-run") === "1" || body?.dryRun === true;
+    const dryRun = req.headers.get("x-glc-dry-run") === "1" || bodyRecord?.dryRun === true;
 
     // LGPD: não registrar payload bruto do IXC, pois pode conter dados pessoais.
     console.log("[IXC Webhook] chamado recebido", { id: chamado.id, prioridade: chamado.prioridade, dryRun });
@@ -86,8 +87,9 @@ export async function GET() {
   return NextResponse.json({ status: "webhook ativo", sistema: "GLC Atende", telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN) });
 }
 
-function normalizeChamado(body: any): WebhookChamado {
-  const chamado = body?.chamado || body?.oss || body?.ticket || body?.data || body || {};
+function normalizeChamado(body: unknown): WebhookChamado {
+  const record = asRecord(body);
+  const chamado = asRecord(record?.chamado) || asRecord(record?.oss) || asRecord(record?.ticket) || asRecord(record?.data) || record || {};
   const id = String(chamado.id || chamado.id_chamado || chamado.id_oss || chamado.ticket_id || chamado.protocolo || "?");
   const idCliente = chamado.id_cliente || chamado.cliente_id || chamado.idCliente;
 
@@ -97,8 +99,17 @@ function normalizeChamado(body: any): WebhookChamado {
     assunto: String(chamado.assunto || chamado.subject || chamado.titulo || chamado.descricao_assunto || "Novo chamado"),
     prioridade: String(chamado.prioridade || chamado.priority || chamado.prioridade_oss || "M"),
     status: chamado.status ? String(chamado.status) : undefined,
-    nomeCliente: chamado.nome_cliente || chamado.customer || chamado.razao || chamado.cliente || undefined,
+    nomeCliente: firstString(chamado.nome_cliente, chamado.customer, chamado.razao, chamado.cliente),
   };
+}
+
+function firstString(...values: unknown[]) {
+  const value = values.find((item) => typeof item === "string" || typeof item === "number");
+  return value == null ? undefined : String(value);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 function priorityLabel(prioridade: string) {
