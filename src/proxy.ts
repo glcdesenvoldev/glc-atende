@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireBasicAuth } from "@/lib/security";
+import { getSessionCookieName, verifyDashboardSession } from "@/lib/dashboard-session";
 
-export function proxy(request: NextRequest) {
-  const authError = requireBasicAuth(request);
-  if (authError) return authError;
-  return NextResponse.next();
+export async function proxy(request: NextRequest) {
+  const token = request.cookies.get(getSessionCookieName())?.value;
+  const authenticated = await verifyDashboardSession(token);
+  if (authenticated) return NextResponse.next();
+
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const loginUrl = new URL("/login", request.url);
+  loginUrl.searchParams.set("next", request.nextUrl.pathname);
+  return NextResponse.redirect(loginUrl);
 }
 
 export const config = {
