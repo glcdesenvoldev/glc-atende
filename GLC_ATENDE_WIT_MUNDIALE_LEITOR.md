@@ -128,3 +128,31 @@ Com a aba Atendimento validada:
 - Evitar mensagens completas de clientes.
 - Retornar/alertar somente dados mínimos e mascarados.
 - Comunicação automática para cliente continua bloqueada sem confirmação humana.
+
+
+## Monitor WIT v2 — regras de alerta
+
+O endpoint agora gera alertas operacionais por regras configuráveis:
+
+- `WIT_ALERT_NEW_TICKETS=true`: alerta uma vez para ticket/conversa nova.
+- `WIT_QUEUE_ALERT_MINUTES=10`: alerta quando o tempo em fila passa do limite.
+- `WIT_ATTENDANCE_ALERT_MINUTES=15`: alerta quando o tempo em atendimento passa do limite.
+- `WIT_ACTIVE_TICKETS_ALERT_COUNT=5`: alerta quando o volume ativo atinge o limite.
+- `WIT_REPEAT_ALERT_MINUTES=30`: janela mínima para repetir alerta persistente do mesmo ticket/regra.
+
+Também é possível sobrescrever em teste por query string:
+
+```txt
+/api/monitor/wit?secret=***&queueMin=5&attendanceMin=10&activeCount=3&repeatMin=15
+```
+
+### Anti-spam
+
+- Ticket novo: alerta uma vez por ID.
+- Tempo em fila/atendimento: pode repetir apenas após a janela `WIT_REPEAT_ALERT_MINUTES`.
+- Volume ativo: alerta no máximo uma vez por janela.
+
+### Segurança
+
+O alerta continua sem transcrever mensagens de clientes e com contato/nome mascarados.
+A automação continua somente interna; não enviar mensagem automática ao cliente sem confirmação humana.
