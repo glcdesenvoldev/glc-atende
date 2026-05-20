@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Headphones, RefreshCw, AlertCircle, Clock, CheckCircle2, Loader2, User, ChevronDown, ChevronUp, Send } from "lucide-react";
+import { Headphones, RefreshCw, AlertCircle, Clock, CheckCircle2, Loader2, User, ChevronDown, ChevronUp, Send, LogOut } from "lucide-react";
 
 interface Chamado {
   id: string;
@@ -116,6 +116,13 @@ export default function ChamadosPage() {
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             Atualizar
           </button>
+          <form method="post" action="/api/auth/logout">
+            <button type="submit"
+              className="flex items-center gap-1.5 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 rounded-xl px-3 py-2 text-xs transition-all">
+              <LogOut className="w-3.5 h-3.5" />
+              Sair
+            </button>
+          </form>
         </div>
       </div>
 
