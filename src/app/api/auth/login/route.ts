@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { appUrl } from "@/lib/url";
 import { validateDashboardCredentials } from "@/lib/dashboard-auth";
 import { createDashboardSession, getSessionCookieName, getSessionMaxAgeSeconds } from "@/lib/dashboard-session";
 
@@ -11,7 +12,7 @@ export async function POST(request: NextRequest) {
   if (!ok) return redirectWithError(request, "/login?erro=1");
 
   const token = await createDashboardSession(username);
-  const response = NextResponse.redirect(new URL("/dashboard/chamados", request.url));
+  const response = NextResponse.redirect(appUrl("/dashboard/chamados", request));
   response.cookies.set(getSessionCookieName(), token, {
     httpOnly: true,
     sameSite: "lax",
@@ -23,5 +24,5 @@ export async function POST(request: NextRequest) {
 }
 
 function redirectWithError(request: NextRequest, path: string) {
-  return NextResponse.redirect(new URL(path, request.url));
+  return NextResponse.redirect(appUrl(path, request));
 }
