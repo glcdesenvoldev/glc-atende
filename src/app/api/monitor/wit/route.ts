@@ -5,6 +5,7 @@ import { sendTelegramMessage } from "@/lib/telegram";
 import {
   getWitAuthFromEnv,
   getWitAuthFromHeaders,
+  getWitAuthFromStorageState,
   getWitDefaults,
   getWitPendingTickets,
   getWitQueueMetrics,
@@ -45,7 +46,7 @@ async function runWitMonitor(request: NextRequest) {
   const dryRun = request.nextUrl.searchParams.get("dryRun") !== "0";
   const notify = request.nextUrl.searchParams.get("notify") === "1";
   const rules = getRules(request);
-  const auth = getWitAuthFromHeaders(request.headers) || getWitAuthFromEnv();
+  const auth = getWitAuthFromHeaders(request.headers) || getWitAuthFromEnv() || await getWitAuthFromStorageState();
 
   if (!auth) {
     await appendAudit({ source: "wit_monitor", action: "config_missing", status: "skipped" });

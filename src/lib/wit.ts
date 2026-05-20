@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
 export type WitTicketSummary = {
   id: string;
   status?: string;
@@ -57,6 +60,24 @@ export function getWitAuthFromHeaders(headers: Headers): WitAuth | null {
 
   if (!accessToken || !accountId) return null;
   return { tokenType, accessToken, accountId };
+}
+
+export async function getWitAuthFromStorageState(): Promise<WitAuth | null> {
+  const storagePath = process.env.WIT_STORAGE_STATE_PATH || path.join(process.env.DATA_DIR || "/tmp/glc-atende", "withub", "storage-state.json");
+
+  try {
+    const content = await readFile(storagePath, "utf8");
+    const state = JSON.parse(content) as { cookies?: Array<{ name?: string; value?: string }> };
+    const cookies = new Map((state.cookies || []).map((cookie) => [cookie.name, cookie.value]));
+    const accessToken = cookies.get("hub_access_token") || "";
+    const accountId = cookies.get("hub_account") || "";
+    const tokenType = cookies.get("hub_token_type") || process.env.WIT_TOKEN_TYPE || "Bearer";
+
+    if (!accessToken || !accountId) return null;
+    return { tokenType, accessToken, accountId };
+  } catch {
+    return null;
+  }
 }
 
 export async function getWitPendingTickets(auth: WitAuth): Promise<WitMonitorResult> {
