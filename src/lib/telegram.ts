@@ -387,6 +387,18 @@ Toque/segure no código para copiar e colar no app do banco.` : "⚠️ Linha di
     return;
   }
 
+  if (kind === "mensagem") {
+    await sendTelegramMessage(
+      context.chatId,
+      `📝 Mensagem pronta para cliente — fatura ${escapeHtml(fatura.id)}
+
+<code>${escapeHtml(formatMensagemClienteFatura(fatura))}</code>
+
+⚠️ Rascunho interno. Copie e envie manualmente somente após conferir cliente/fatura no IXC.`
+    );
+    return;
+  }
+
   if (kind === "link") {
     await sendTelegramMessage(context.chatId, link ? `Link/PDF do boleto da fatura ${escapeHtml(fatura.id)}:
 
@@ -406,6 +418,7 @@ function buildFaturaActionsKeyboard(idCliente: string, fatura: IxcFatura): Reply
 
   if (linhaDigitavel) row1.push({ text: "📋 Copiar código boleto", callback_data: `fatura_item:linha:${idCliente}` });
   row1.push({ text: "📄 Ver PDF boleto", callback_data: `fatura_item:pdf:${idCliente}` });
+  row2.push({ text: "📝 Mensagem cliente", callback_data: `fatura_item:mensagem:${idCliente}` });
   if (pix) row2.push({ text: "🔳 QR PIX", callback_data: `fatura_item:qr:${idCliente}` });
   if (pix) row2.push({ text: "📋 PIX copia e cola", callback_data: `fatura_item:pix:${idCliente}` });
   void link;
@@ -665,6 +678,27 @@ function formatFaturaResumo(fatura: IxcFatura) {
     `Fatura: ${escapeHtml(fatura.id)}`,
     `Valor: R$ ${escapeHtml(valor)} · Venc.: ${escapeHtml(fatura.data_vencimento || "-")}`,
     `Status: ${escapeHtml(fatura.status || fatura.status_cobranca || "-")}`,
+  ].join("\n");
+}
+
+function formatMensagemClienteFatura(fatura: IxcFatura) {
+  const valor = fatura.valor_aberto || fatura.valor || "-";
+  const vencimento = fatura.data_vencimento || "-";
+  const linhaDigitavel = fatura.linha_digitavel || fatura.codigo_barras || fatura.boleto || "";
+
+  return [
+    "Olá! Tudo bem?",
+    "",
+    "Segue a sua fatura em aberto:",
+    `Valor: R$ ${valor}`,
+    `Vencimento: ${vencimento}`,
+    "",
+    linhaDigitavel ? `Código do boleto / linha digitável:\n${linhaDigitavel}` : "Código do boleto: consultar PDF/anexo.",
+    "",
+    "Você também pode pagar pelo PDF do boleto enviado em anexo.",
+    "",
+    "Qualquer dúvida, estamos à disposição.",
+    "GLC Internet",
   ].join("\n");
 }
 
