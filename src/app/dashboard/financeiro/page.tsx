@@ -43,7 +43,7 @@ type FinanceiroResponse = {
 
 type AprovacaoEnvio = {
   id: string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "manual_sent";
   idCliente: string;
   faturaId: string;
   valor: string;
@@ -97,7 +97,7 @@ export default function FinanceiroPage() {
     if (json.ok) setAprovacoes(json.items || []);
   }
 
-  async function decidirAprovacao(id: string, action: "approve" | "reject") {
+  async function decidirAprovacao(id: string, action: "approve" | "reject" | "manual_sent") {
     setApprovalMsg("");
     const res = await fetch("/api/financeiro/aprovacoes", {
       method: "PATCH",
@@ -109,7 +109,7 @@ export default function FinanceiroPage() {
       setApprovalMsg(json.error || "Falha ao atualizar aprovação.");
       return;
     }
-    setApprovalMsg("Status atualizado. Nenhuma mensagem foi enviada ao cliente.");
+    setApprovalMsg(action === "manual_sent" ? "Envio manual registrado. Nenhuma mensagem foi enviada automaticamente." : "Status atualizado. Nenhuma mensagem foi enviada ao cliente.");
     await carregarAprovacoes();
   }
 
@@ -289,6 +289,8 @@ export default function FinanceiroPage() {
                       <button onClick={() => decidirAprovacao(aprovacao.id, "approve")} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold hover:bg-emerald-500">Aprovar internamente</button>
                       <button onClick={() => decidirAprovacao(aprovacao.id, "reject")} className="rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold hover:bg-rose-500">Rejeitar</button>
                     </div>
+                  ) : aprovacao.status === "approved" ? (
+                    <button onClick={() => decidirAprovacao(aprovacao.id, "manual_sent")} className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold hover:bg-sky-500">Marcar enviado manualmente</button>
                   ) : null}
                 </div>
                 <p className="text-xs text-amber-200">{aprovacao.safetyMessage}</p>
@@ -425,9 +427,10 @@ function money(value: string) {
 }
 
 
-function statusAprovacao(status: "pending" | "approved" | "rejected") {
+function statusAprovacao(status: "pending" | "approved" | "rejected" | "manual_sent") {
   if (status === "pending") return "pendente";
   if (status === "approved") return "aprovado internamente";
+  if (status === "manual_sent") return "enviado manualmente";
   return "rejeitado";
 }
 

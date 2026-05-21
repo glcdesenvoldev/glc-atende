@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createFinanceApproval, decideFinanceApproval, listFinanceApprovals } from "@/lib/finance-approvals";
+import { createFinanceApproval, decideFinanceApproval, listFinanceApprovals, markFinanceApprovalManualSent } from "@/lib/finance-approvals";
 import { ixcApi } from "@/lib/ixc";
 
 export async function GET() {
@@ -32,10 +32,17 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const id = String(body.id || "").trim();
-  const action = body.action === "approve" ? "approve" : body.action === "reject" ? "reject" : null;
+  const action = body.action === "approve" ? "approve" : body.action === "reject" ? "reject" : body.action === "manual_sent" ? "manual_sent" : null;
 
   if (!id || !action) {
-    return NextResponse.json({ ok: false, error: "Informe id e action approve/reject." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Informe id e action approve/reject/manual_sent." }, { status: 400 });
+  }
+
+  if (action === "manual_sent") {
+    const result = await markFinanceApprovalManualSent({ id, note: String(body.note || ""), decidedBy: "dashboard" });
+    if (!result) return NextResponse.json({ ok: false, error: "Solicitação não encontrada." }, { status: 404 });
+    if (result.blocked) return NextResponse.json({ ok: false, error: "Só é possível registrar envio manual após aprovação interna." }, { status: 409 });
+    return NextResponse.json({ ok: true, approval: result.approval, message: "Envio manual registrado. Nenhuma mensagem foi enviada automaticamente." });
   }
 
   const approval = await decideFinanceApproval({ id, action, note: String(body.note || ""), decidedBy: "dashboard" });

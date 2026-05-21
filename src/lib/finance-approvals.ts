@@ -8,7 +8,7 @@ const dataDir = process.env.DATA_DIR || "/tmp/glc-atende";
 const financeDir = path.join(dataDir, "financeiro");
 const approvalsFile = path.join(financeDir, "aprovacoes-envio.json");
 
-export type ApprovalStatus = "pending" | "approved" | "rejected";
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "manual_sent";
 export type ApprovalTipo = "boleto_pix";
 
 export type FinanceApproval = {
@@ -88,6 +88,24 @@ export async function decideFinanceApproval(input: { id: string; action: "approv
   await writeApprovals(approvals);
   await appendAudit({ action: "finance_approval_decide", status: approval.status, id: approval.id, clientId: approval.idCliente, faturaId: approval.faturaId });
   return approval;
+}
+
+
+export async function markFinanceApprovalManualSent(input: { id: string; note?: string; decidedBy?: string }) {
+  const approvals = await readApprovals();
+  const approval = approvals.find((item) => item.id === input.id);
+  if (!approval) return null;
+  if (approval.status !== "approved" && approval.status !== "manual_sent") return { blocked: true as const, approval };
+
+  approval.status = "manual_sent";
+  approval.updatedAt = new Date().toISOString();
+  approval.decidedBy = input.decidedBy || approval.decidedBy || "dashboard";
+  approval.note = input.note || approval.note || "Marcado como enviado manualmente.";
+  approval.safetyMessage = "Envio manual registrado. Nenhuma mensagem foi enviada automaticamente pelo sistema.";
+
+  await writeApprovals(approvals);
+  await appendAudit({ action: "finance_approval_manual_sent", status: approval.status, id: approval.id, clientId: approval.idCliente, faturaId: approval.faturaId });
+  return { blocked: false as const, approval };
 }
 
 async function readApprovals(): Promise<FinanceApproval[]> {

@@ -1,7 +1,7 @@
 import { appendFile, mkdir } from "fs/promises";
 import { dirname } from "path";
 import QRCode from "qrcode";
-import { createFinanceApproval, decideFinanceApproval, listFinanceApprovals } from "@/lib/finance-approvals";
+import { createFinanceApproval, decideFinanceApproval, listFinanceApprovals, markFinanceApprovalManualSent } from "@/lib/finance-approvals";
 import { ixcApi, type IxcChamado, type IxcCliente, type IxcFatura } from "@/lib/ixc";
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
@@ -118,6 +118,11 @@ async function handleCallback(context: AuditContext, data: string) {
 
   if (action === "fatura_item" && value && extra) {
     await replyFaturaItem(context, value, extra);
+    return;
+  }
+
+  if (action === "approval_sent" && value) {
+    await replyRegistroEnvioManual(context, value);
     return;
   }
 
@@ -443,7 +448,8 @@ async function replyAprovacaoEnvioManual(context: AuditContext, idCliente: strin
         "",
         "Nenhuma mensagem foi enviada automaticamente ao cliente.",
         "Use o botão 📝 Copiar mensagem cliente e envie manualmente após conferência final.",
-      ].join("\n")
+      ].join("\n"),
+      buildManualSentKeyboard(existingApproved.id)
     );
     return;
   }
@@ -474,8 +480,53 @@ async function replyAprovacaoEnvioManual(context: AuditContext, idCliente: strin
       "",
       "Nenhuma mensagem foi enviada automaticamente ao cliente.",
       "Use o botão 📝 Copiar mensagem cliente e envie manualmente após conferir nome/cliente/fatura no IXC.",
+      "Depois, toque em 📌 Marcar enviado manualmente para fechar o registro.",
+    ].join("\n"),
+    buildManualSentKeyboard(request.approval.id)
+  );
+}
+
+async function replyRegistroEnvioManual(context: AuditContext, approvalId: string) {
+  const result = await markFinanceApprovalManualSent({
+    id: approvalId,
+    note: "Operador informou envio manual pelo Telegram. Sem disparo automático.",
+    decidedBy: `telegram:${context.userId}`,
+  });
+
+  if (!result) {
+    await sendTelegramMessage(context.chatId, "⚠️ Aprovação não encontrada para registrar envio manual.");
+    return;
+  }
+
+  if (result.blocked) {
+    await sendTelegramMessage(context.chatId, "⚠️ Só é possível marcar como enviado manualmente após aprovação interna.");
+    return;
+  }
+
+  await auditLog(context, {
+    action: "finance_manual_sent_telegram",
+    status: "manual_sent",
+    clientId: result.approval.idCliente,
+    faturaId: result.approval.faturaId,
+    approvalId: result.approval.id,
+  });
+
+  await sendTelegramMessage(
+    context.chatId,
+    [
+      `📌 Envio manual registrado — fatura ${escapeHtml(result.approval.faturaId)}`,
+      `Protocolo: ${escapeHtml(result.approval.id.slice(0, 8))}`,
+      `Cliente: ${escapeHtml(result.approval.idCliente)}`,
+      "",
+      "Registro fechado. Nenhuma mensagem foi enviada automaticamente pelo sistema.",
     ].join("\n")
   );
+}
+
+function buildManualSentKeyboard(approvalId: string): ReplyMarkup {
+  return {
+    inline_keyboard: [[{ text: "📌 Marcar enviado manualmente", callback_data: `approval_sent:${approvalId}` }]],
+  };
 }
 
 async function generatePixQrCode(payload: string) {
