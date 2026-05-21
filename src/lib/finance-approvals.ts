@@ -59,7 +59,7 @@ export async function createFinanceApproval(input: { idCliente: string; fatura: 
     dataVencimento: input.fatura.data_vencimento || "",
     hasLinhaDigitavel: Boolean(linhaDigitavel),
     hasPix: Boolean(pixCopiaCola),
-    hasLink: Boolean(input.fatura.link),
+    hasLink: Boolean(input.fatura.link || input.fatura.gateway_link),
     linhaDigitavel: linhaDigitavel || undefined,
     pixCopiaCola: pixCopiaCola || undefined,
     link: input.fatura.link || undefined,

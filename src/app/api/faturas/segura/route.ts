@@ -50,6 +50,6 @@ function toSafeFatura(fatura: IxcFatura) {
     linha_digitavel: fatura.linha_digitavel || fatura.boleto || "",
     pix_copia_cola: fatura.pix_copia_cola || fatura.pix || "",
     pix_txid: fatura.pix_txid || "",
-    link: fatura.link || "",
+    link: fatura.link || fatura.gateway_link || "",
   };
 }

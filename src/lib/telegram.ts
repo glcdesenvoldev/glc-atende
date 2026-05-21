@@ -539,7 +539,8 @@ function formatFatura(fatura: IxcFatura) {
 
   if (linhaDigitavel) partes.push(`Linha digitável: ${escapeHtml(linhaDigitavel)}`);
   if (pix) partes.push(`PIX copia e cola: ${escapeHtml(pix)}`);
-  if (fatura.link) partes.push(`Link: ${escapeHtml(fatura.link)}`);
+  const link = fatura.link || fatura.gateway_link;
+  if (link) partes.push(`Link: ${escapeHtml(link)}`);
 
   return partes.join("\n");
 }

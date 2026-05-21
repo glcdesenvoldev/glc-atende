@@ -106,6 +106,7 @@ export interface IxcFatura {
   linha_digitavel?: string;
   boleto?: string;
   link?: string;
+  gateway_link?: string;
   pix?: string;
   pix_copia_cola?: string;
   pix_txid?: string;
@@ -237,7 +238,7 @@ export const ixcApi = {
   async getFaturasCliente(idCliente: string): Promise<{ total: number; items: IxcFatura[]; unavailable?: boolean }> {
     const data = await ixcRequest<IxcListResponse<IxcFatura>>(
       "fn_areceber",
-      { qtype: "fn_areceber.id_cliente", query: idCliente, oper: "=", page: "1", rp: "20", sortname: "fn_areceber.data_vencimento", sortorder: "asc" }
+      { qtype: "fn_areceber.id_cliente", query: idCliente, oper: "=", page: "1", rp: "100", sortname: "fn_areceber.id", sortorder: "desc" }
     );
 
     if (!data) return { total: 0, items: [], unavailable: true };

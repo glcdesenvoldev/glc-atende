@@ -110,10 +110,10 @@ function toSafeFaturaDetalhe(fatura: IxcFatura) {
     data_emissao: fatura.data_emissao || "",
     has_linha_digitavel: Boolean(linhaDigitavel),
     has_pix: Boolean(pix),
-    has_link: Boolean(fatura.link),
+    has_link: Boolean(fatura.link || fatura.gateway_link),
     linha_digitavel: linhaDigitavel,
     pix_copia_cola: pix,
     pix_txid: fatura.pix_txid || "",
-    link: fatura.link || "",
+    link: fatura.link || fatura.gateway_link || "",
   };
 }
