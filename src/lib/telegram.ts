@@ -89,6 +89,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate) {
   }
 
   if (update.callback_query?.data) {
+    await answerCallbackQuery(update.callback_query.id, "Processando...");
+    await auditLog(auditContext, { action: "callback_received", status: "received", command: update.callback_query.data.split(":")[0] });
     await handleCallback(auditContext, update.callback_query.data);
     return { ok: true };
   }
@@ -401,7 +403,7 @@ function buildFaturaActionsKeyboard(idCliente: string, fatura: IxcFatura): Reply
   if (linhaDigitavel) row1.push({ text: "2️⃣ Código boleto", callback_data: `fatura_item:linha:${idCliente}` });
   if (pix) row2.push({ text: "3️⃣ PIX copia e cola", callback_data: `fatura_item:pix:${idCliente}` });
   row2.push({ text: "📄 PDF boleto", callback_data: `fatura_item:pdf:${idCliente}` });
-  if (link) row2.push({ text: "4️⃣ Link/PDF boleto", callback_data: `fatura_item:link:${idCliente}` });
+  void link;
 
   const inline_keyboard = [row1, row2].filter((row) => row.length > 0);
   return inline_keyboard.length ? { inline_keyboard } : undefined;
@@ -419,6 +421,27 @@ async function generatePixQrCode(payload: string) {
     });
   } catch {
     return null;
+  }
+}
+
+async function answerCallbackQuery(callbackQueryId: string, text?: string) {
+  const { botToken } = getTelegramConfig();
+  if (!botToken) return { ok: false, error: "TELEGRAM_BOT_TOKEN ausente" };
+
+  try {
+    const res = await fetch(`${TELEGRAM_API}${botToken}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        callback_query_id: callbackQueryId,
+        text: text ? truncate(text, 180) : undefined,
+        show_alert: false,
+      }),
+    });
+    return res.json();
+  } catch (error) {
+    console.error("telegram_answer_callback_failed", error);
+    return { ok: false, error: "answer_callback_failed" };
   }
 }
 

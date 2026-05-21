@@ -18,8 +18,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const update = (await request.json()) as TelegramUpdate;
-  const result = await handleTelegramUpdate(update);
+  try {
+    const update = (await request.json()) as TelegramUpdate;
+    const result = await handleTelegramUpdate(update);
 
-  return NextResponse.json(result);
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error("telegram_webhook_failed", error);
+    return NextResponse.json({ ok: false, error: "telegram_webhook_failed" }, { status: 500 });
+  }
 }
