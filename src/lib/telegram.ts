@@ -305,11 +305,14 @@ async function replyFaturaSegura(context: AuditContext, idCliente: string, actio
   await auditLog(context, { action, status: "success", clientId: clean, resultCount: 1, faturaIds: [result.fatura.id] });
   await sendTelegramMessage(
     context.chatId,
-    `✅ Fatura segura localizada para cliente ${escapeHtml(clean)}
+    `✅ Fatura segura localizada
 
+Cliente: ${escapeHtml(clean)}
 ${formatFatura(result.fatura)}
 
-Escolha abaixo o que deseja visualizar/copiar.
+Ações disponíveis:
+📋 Copiar código para pagamento
+📄 Abrir PDF do boleto
 
 ⚠️ Conferir nome/cliente no IXC antes de enviar ao cliente. Envio automático externo continua bloqueado nesta fase.`,
     buildFaturaActionsKeyboard(clean, result.fatura)
@@ -332,9 +335,11 @@ async function replyFaturaItem(context: AuditContext, kind: string, idCliente: s
   await auditLog(context, { action: "fatura_item", status: "success", item: kind, clientId: idCliente, faturaId: fatura.id });
 
   if (kind === "linha") {
-    await sendTelegramMessage(context.chatId, linhaDigitavel ? `Código numérico / linha digitável da fatura ${escapeHtml(fatura.id)}:
+    await sendTelegramMessage(context.chatId, linhaDigitavel ? `📋 Código do boleto — fatura ${escapeHtml(fatura.id)}
 
-<code>${escapeHtml(linhaDigitavel)}</code>` : "⚠️ Linha digitável/código numérico não retornado pelo IXC nesta fatura.");
+<code>${escapeHtml(linhaDigitavel)}</code>
+
+Toque/segure no código para copiar e colar no app do banco.` : "⚠️ Linha digitável/código numérico não retornado pelo IXC nesta fatura.");
     return;
   }
 
@@ -375,7 +380,7 @@ async function replyFaturaItem(context: AuditContext, kind: string, idCliente: s
     await sendTelegramDocument(
       context.chatId,
       pdf,
-      `Boleto interno — fatura ${fatura.id}. Conferir antes de enviar ao cliente.`,
+      `📄 PDF do boleto — fatura ${fatura.id}. Conferir antes de enviar ao cliente.`,
       `boleto-${fatura.id}.pdf`,
       "application/pdf"
     );
@@ -399,10 +404,10 @@ function buildFaturaActionsKeyboard(idCliente: string, fatura: IxcFatura): Reply
   const row1: ReplyMarkup["inline_keyboard"][number] = [];
   const row2: ReplyMarkup["inline_keyboard"][number] = [];
 
-  if (pix) row1.push({ text: "1️⃣ QR PIX", callback_data: `fatura_item:qr:${idCliente}` });
-  if (linhaDigitavel) row1.push({ text: "2️⃣ Código boleto", callback_data: `fatura_item:linha:${idCliente}` });
-  if (pix) row2.push({ text: "3️⃣ PIX copia e cola", callback_data: `fatura_item:pix:${idCliente}` });
-  row2.push({ text: "📄 PDF boleto", callback_data: `fatura_item:pdf:${idCliente}` });
+  if (linhaDigitavel) row1.push({ text: "📋 Copiar código boleto", callback_data: `fatura_item:linha:${idCliente}` });
+  row1.push({ text: "📄 Ver PDF boleto", callback_data: `fatura_item:pdf:${idCliente}` });
+  if (pix) row2.push({ text: "🔳 QR PIX", callback_data: `fatura_item:qr:${idCliente}` });
+  if (pix) row2.push({ text: "📋 PIX copia e cola", callback_data: `fatura_item:pix:${idCliente}` });
   void link;
 
   const inline_keyboard = [row1, row2].filter((row) => row.length > 0);
@@ -676,22 +681,17 @@ function formatFatura(fatura: IxcFatura) {
 
   if (linhaDigitavel) {
     partes.push(`Linha digitável: ${escapeHtml(linhaDigitavel)}`);
-    partes.push("Boleto: use o botão abaixo para copiar o código ou abrir link/PDF.");
   } else {
-    partes.push("Código de barras/linha digitável: não retornado pelo IXC nesta consulta.");
+    partes.push("Linha digitável: não retornada pelo IXC nesta consulta.");
   }
 
   if (pix) {
-    partes.push(`PIX copia e cola: ${escapeHtml(pix)}`);
-    partes.push("PIX: use os botões abaixo para QR Code ou copia-e-cola.");
+    partes.push("PIX: disponível nos botões abaixo.");
   } else if (fatura.pix_txid) {
     partes.push("PIX: IXC retornou apenas TXID, sem copia-e-cola. QR PIX não gerado por segurança.");
   } else {
-    partes.push("PIX copia-e-cola/QR: não retornado pelo IXC nesta consulta.");
+    partes.push("PIX: copia-e-cola/QR não retornado pelo IXC nesta consulta.");
   }
-
-  const link = fatura.link || fatura.gateway_link;
-  if (link) partes.push(`Link: ${escapeHtml(link)}`);
 
   return partes.join("\n");
 }
