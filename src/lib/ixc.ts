@@ -56,6 +56,37 @@ async function ixcRequest<T>(endpoint: string, body?: object): Promise<T | null>
   }
 }
 
+
+async function ixcRequestRaw(endpoint: string, body?: object): Promise<string | null> {
+  const timeoutMs = Number(process.env.IXC_TIMEOUT_MS || "12000");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const auth = getAuthHeader();
+    if (!auth) return null;
+
+    const res = await fetch(`${IXC_BASE}/${endpoint}`, {
+      method: body ? "POST" : "GET",
+      headers: {
+        "Authorization": auth,
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/plain, */*",
+        "ixcsoft": "listar",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export interface IxcChamado {
   id: string;
   assunto: string;
@@ -295,14 +326,22 @@ export const ixcApi = {
 
   // Retorna PDF do boleto em base64 via get_boleto. Somente leitura/geração de arquivo.
   async getBoletoArquivoBase64(idReceber: string): Promise<string | null> {
-    const data = await ixcRequest<string | { arquivo?: string; base64?: string; file?: string }>(
+    const raw = await ixcRequestRaw(
       "get_boleto",
       { boletos: idReceber, juro: "N", multa: "N", atualiza_boleto: "N", tipo_boleto: "arquivo", base64: "S" }
     );
 
-    if (!data) return null;
-    if (typeof data === "string") return data.replace(/^"|"$/g, "").trim();
-    return (data.arquivo || data.base64 || data.file || "").trim() || null;
+    if (!raw) return null;
+    const clean = raw.replace(/^"|"$/g, "").trim();
+    if (!clean || clean.startsWith("{") || clean.startsWith("[")) {
+      try {
+        const data = JSON.parse(raw) as { arquivo?: string; base64?: string; file?: string };
+        return (data.arquivo || data.base64 || data.file || "").trim() || null;
+      } catch {
+        return null;
+      }
+    }
+    return clean;
   },
 
   // Retorna uma única fatura segura para envio assistido.
