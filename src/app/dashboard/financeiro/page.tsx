@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, CircleDollarSign, Copy, FileWarning, Loader2, Lock, RefreshCw, Search, ShieldCheck, XCircle } from "lucide-react";
 
 type Status = "segura" | "multiplas" | "sem_fatura" | "indisponivel";
@@ -41,6 +41,21 @@ type FinanceiroResponse = {
   error?: string;
 };
 
+type AprovacaoEnvio = {
+  id: string;
+  status: "pending" | "approved" | "rejected";
+  idCliente: string;
+  faturaId: string;
+  valor: string;
+  dataVencimento: string;
+  hasLinhaDigitavel: boolean;
+  hasPix: boolean;
+  hasLink: boolean;
+  createdAt: string;
+  updatedAt: string;
+  safetyMessage: string;
+};
+
 type ClienteBusca = {
   id: string;
   nome: string;
@@ -66,8 +81,37 @@ export default function FinanceiroPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [data, setData] = useState<FinanceiroResponse | null>(null);
+  const [aprovacoes, setAprovacoes] = useState<AprovacaoEnvio[]>([]);
+  const [approvalMsg, setApprovalMsg] = useState("");
 
   const cleanIds = useMemo(() => ids.split(/[\s,;]+/).map((id) => id.trim()).filter(Boolean), [ids]);
+
+  useEffect(() => {
+    carregarAprovacoes();
+  }, []);
+
+  async function carregarAprovacoes() {
+    const res = await fetch("/api/financeiro/aprovacoes");
+    if (!res.ok) return;
+    const json = await res.json();
+    if (json.ok) setAprovacoes(json.items || []);
+  }
+
+  async function decidirAprovacao(id: string, action: "approve" | "reject") {
+    setApprovalMsg("");
+    const res = await fetch("/api/financeiro/aprovacoes", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, action }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.ok) {
+      setApprovalMsg(json.error || "Falha ao atualizar aprovação.");
+      return;
+    }
+    setApprovalMsg("Status atualizado. Nenhuma mensagem foi enviada ao cliente.");
+    await carregarAprovacoes();
+  }
 
   async function buscarClientes() {
     setLoadingBusca(true);
@@ -218,16 +262,47 @@ export default function FinanceiroPage() {
 
           <section className="space-y-3">
             {data.items.map((item) => (
-              <FinanceiroCard key={item.idCliente} item={item} />
+              <FinanceiroCard key={item.idCliente} item={item} onApprovalCreated={carregarAprovacoes} />
             ))}
           </section>
         </>
       )}
+      <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold">Solicitações internas de envio</h2>
+          <p className="text-xs text-[#94A3B8] mt-1">Aprovação apenas interna nesta fase. O sistema ainda não envia WhatsApp para cliente.</p>
+        </div>
+        {approvalMsg ? <div className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-3 text-sm text-amber-200">{approvalMsg}</div> : null}
+        {aprovacoes.length === 0 ? (
+          <p className="text-sm text-[#94A3B8]">Nenhuma solicitação registrada ainda.</p>
+        ) : (
+          <div className="space-y-2">
+            {aprovacoes.slice(0, 10).map((aprovacao) => (
+              <div key={aprovacao.id} className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-3 text-sm space-y-2">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                  <div>
+                    <p className="font-semibold">Cliente #{aprovacao.idCliente} • Fatura #{aprovacao.faturaId} • R$ {aprovacao.valor || "-"}</p>
+                    <p className="text-xs text-[#94A3B8]">Status: {statusAprovacao(aprovacao.status)} • Criada em {formatDate(aprovacao.createdAt)}</p>
+                  </div>
+                  {aprovacao.status === "pending" ? (
+                    <div className="flex gap-2">
+                      <button onClick={() => decidirAprovacao(aprovacao.id, "approve")} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold hover:bg-emerald-500">Aprovar internamente</button>
+                      <button onClick={() => decidirAprovacao(aprovacao.id, "reject")} className="rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold hover:bg-rose-500">Rejeitar</button>
+                    </div>
+                  ) : null}
+                </div>
+                <p className="text-xs text-amber-200">{aprovacao.safetyMessage}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
     </div>
   );
 }
 
-function FinanceiroCard({ item }: { item: FinanceiroItem }) {
+function FinanceiroCard({ item, onApprovalCreated }: { item: FinanceiroItem; onApprovalCreated: () => void }) {
   const cfg = statusConfig[item.status];
   return (
     <div className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-4 space-y-3">
@@ -241,7 +316,7 @@ function FinanceiroCard({ item }: { item: FinanceiroItem }) {
         </div>
       </div>
 
-      {item.status === "segura" && item.fatura ? <FaturaSegura fatura={item.fatura} /> : null}
+      {item.status === "segura" && item.fatura ? <FaturaSegura idCliente={item.idCliente} fatura={item.fatura} onApprovalCreated={onApprovalCreated} /> : null}
 
       {item.bloqueio ? (
         <div className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-3 text-sm text-[#CBD5E1]">
@@ -257,7 +332,30 @@ function FinanceiroCard({ item }: { item: FinanceiroItem }) {
   );
 }
 
-function FaturaSegura({ fatura }: { fatura: FaturaDetalhe }) {
+function FaturaSegura({ idCliente, fatura, onApprovalCreated }: { idCliente: string; fatura: FaturaDetalhe; onApprovalCreated: () => void }) {
+  const [creating, setCreating] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function criarAprovacao() {
+    setCreating(true);
+    setMessage("");
+    try {
+      const res = await fetch("/api/financeiro/aprovacoes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idCliente }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error || "Falha ao criar aprovação.");
+      setMessage(json.created ? "Solicitação interna criada." : "Já existe solicitação pendente para esta fatura.");
+      onApprovalCreated();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Falha ao criar aprovação.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <div className="rounded-xl bg-emerald-500/5 border border-emerald-500/20 p-3 space-y-3">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
@@ -274,6 +372,16 @@ function FaturaSegura({ fatura }: { fatura: FaturaDetalhe }) {
       {fatura.linha_digitavel ? <CopyBlock label="Linha digitável" value={fatura.linha_digitavel} /> : null}
       {fatura.pix_copia_cola ? <CopyBlock label="PIX copia-e-cola" value={fatura.pix_copia_cola} /> : null}
       {fatura.link ? <CopyBlock label="Link/PDF" value={fatura.link} /> : null}
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={criarAprovacao}
+          disabled={creating}
+          className="rounded-lg bg-[#14B8A6] px-3 py-2 text-xs font-semibold hover:bg-[#0f9f90] disabled:opacity-40"
+        >
+          {creating ? "Criando..." : "Criar solicitação interna de envio"}
+        </button>
+        {message ? <span className="text-xs text-amber-200">{message}</span> : null}
+      </div>
       <p className="text-xs text-amber-200">Conferir no IXC antes de enviar ao cliente. Aprovação humana obrigatória.</p>
     </div>
   );
@@ -314,4 +422,19 @@ function CopyBlock({ label, value }: { label: string; value: string }) {
 
 function money(value: string) {
   return value ? `R$ ${value}` : "-";
+}
+
+
+function statusAprovacao(status: "pending" | "approved" | "rejected") {
+  if (status === "pending") return "pendente";
+  if (status === "approved") return "aprovado internamente";
+  return "rejeitado";
+}
+
+function formatDate(value: string) {
+  try {
+    return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+  } catch {
+    return value;
+  }
 }
