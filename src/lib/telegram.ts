@@ -105,6 +105,11 @@ async function handleCallback(context: AuditContext, data: string) {
     return;
   }
 
+  if (action === "fatura_segura" && value) {
+    await replyFaturaSegura(context, value, "fatura_segura_callback");
+    return;
+  }
+
   if (action === "cliente" && value) {
     await replyCliente(context, value, "cliente_callback");
     return;
@@ -171,6 +176,15 @@ async function handleCommand(context: AuditContext, text: string) {
       await replyFaturas(context, arg, "faturas_command");
       return;
 
+    case "/fatura_segura":
+    case "/fs":
+      if (!arg) {
+        await sendTelegramMessage(context.chatId, "Use: /fatura_segura ID_CLIENTE\nAtalho: /fs 12345");
+        return;
+      }
+      await replyFaturaSegura(context, arg, command === "/fs" ? "fatura_segura_short_command" : "fatura_segura_command");
+      return;
+
     case "/pix":
     case "/boleto":
       await auditLog(context, { action: command.slice(1), status: "blocked" });
@@ -225,7 +239,10 @@ async function replyCliente(context: AuditContext, query: string, action = "clie
 
   const lines = result.items.slice(0, 5).map(formatCliente);
   const keyboard: ReplyMarkup | undefined = result.items.length === 1
-    ? { inline_keyboard: [[{ text: "Ver faturas", callback_data: `faturas:${result.items[0].id}` }]] }
+    ? { inline_keyboard: [[
+        { text: "Ver faturas", callback_data: `faturas:${result.items[0].id}` },
+        { text: "Fatura segura", callback_data: `fatura_segura:${result.items[0].id}` },
+      ]] }
     : undefined;
 
   await auditLog(context, { action, status: "success", queryType: classifyLookupTerm(clean), resultCount: result.items.length, clientIds: result.items.slice(0, 5).map((item) => item.id) });
@@ -248,6 +265,38 @@ async function replyFaturas(context: AuditContext, idCliente: string, action = "
     `💰 Faturas do cliente ${idCliente}\n\n${lines.join("\n\n")}\n\n⚠️ Modo seguro: confira os dados antes de enviar boleto/PIX ao cliente.`
   );
 
+}
+
+async function replyFaturaSegura(context: AuditContext, idCliente: string, action = "fatura_segura_lookup") {
+  const clean = idCliente.trim();
+  const result = await ixcApi.getFaturaSeguraCliente(clean);
+
+  if (!result.ok) {
+    await auditLog(context, { action, status: "blocked", clientId: clean, reason: result.reason, resultCount: result.total, faturaIds: result.items.slice(0, 10).map((item) => item.id) });
+
+    if (result.reason === "unavailable") {
+      await sendTelegramMessage(context.chatId, "⚠️ IXC indisponível ou sem resposta. Não gere nem envie boleto/PIX agora.");
+      return;
+    }
+
+    if (result.reason === "none") {
+      await sendTelegramMessage(context.chatId, `✅ Nenhuma fatura aberta/localizada para o cliente ${escapeHtml(clean)}.`);
+      return;
+    }
+
+    const lines = result.items.slice(0, 8).map(formatFaturaResumo);
+    await sendTelegramMessage(
+      context.chatId,
+      `🛑 Envio bloqueado por segurança.\n\nCliente ${escapeHtml(clean)} possui ${result.total} faturas abertas/localizadas. Para evitar pagamento errado, escolha manualmente no IXC.\n\n${lines.join("\n\n")}`
+    );
+    return;
+  }
+
+  await auditLog(context, { action, status: "success", clientId: clean, resultCount: 1, faturaIds: [result.fatura.id] });
+  await sendTelegramMessage(
+    context.chatId,
+    `✅ Fatura segura localizada para cliente ${escapeHtml(clean)}\n\n${formatFatura(result.fatura)}\n\n⚠️ Conferir nome/cliente no IXC antes de enviar ao cliente. Envio automático externo continua bloqueado nesta fase.`
+  );
 }
 
 export async function sendTelegramMessage(chatId: string | number, text: string, replyMarkup?: ReplyMarkup) {
@@ -381,6 +430,7 @@ function helpText() {
     "No grupo: /c termo ou /cliente termo",
     "Operador: acesso permitido seg-sex, 08:00-18:00",
     "/faturas ID_CLIENTE — lista faturas abertas/localizadas",
+    "/fatura_segura ID_CLIENTE ou /fs ID_CLIENTE — só retorna se existir exatamente 1 fatura aberta",
     "/pix ID_FATURA — bloqueado por segurança nesta fase",
     "/boleto ID_FATURA — bloqueado por segurança nesta fase",
   ].join("\n");
@@ -420,6 +470,15 @@ function formatCliente(cliente: IxcCliente) {
     `Telefone: ${escapeHtml(telefone)}`,
     endereco ? `Endereço: ${escapeHtml(endereco)}` : "",
   ].filter(Boolean).join("\n");
+}
+
+function formatFaturaResumo(fatura: IxcFatura) {
+  const valor = fatura.valor_aberto || fatura.valor || "-";
+  return [
+    `Fatura: ${escapeHtml(fatura.id)}`,
+    `Valor: R$ ${escapeHtml(valor)} · Venc.: ${escapeHtml(fatura.data_vencimento || "-")}`,
+    `Status: ${escapeHtml(fatura.status || fatura.status_cobranca || "-")}`,
+  ].join("\n");
 }
 
 function formatFatura(fatura: IxcFatura) {

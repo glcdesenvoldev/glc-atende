@@ -1,8 +1,8 @@
 /**
  * IXC Soft API Client
  *
- * Tenta API direta primeiro. Se falhar (401/nginx block),
- * usa dados mockados apenas no painel de chamados para desenvolvimento.
+ * Tenta API direta primeiro. Em produção, nunca retorna dados mockados:
+ * se o IXC falhar, a UI/API deve mostrar indisponibilidade ou lista vazia.
  */
 
 const IXC_BASE = process.env.IXC_URL || "https://ixc.glcinternet.com.br/webservice/v1";
@@ -26,6 +26,10 @@ function normalizeRegistros<T>(registros: IxcListResponse<T>["registros"]): T[] 
 }
 
 async function ixcRequest<T>(endpoint: string, body?: object): Promise<T | null> {
+  const timeoutMs = Number(process.env.IXC_TIMEOUT_MS || "12000");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
     const auth = getAuthHeader();
     if (!auth) return null;
@@ -39,6 +43,7 @@ async function ixcRequest<T>(endpoint: string, body?: object): Promise<T | null>
         "ixcsoft": "listar",
       },
       body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
     });
 
     if (!res.ok) return null;
@@ -46,6 +51,8 @@ async function ixcRequest<T>(endpoint: string, body?: object): Promise<T | null>
     return data as T;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -134,18 +141,39 @@ function buildPhoneSearchTerms(digits: string) {
   return Array.from(terms);
 }
 
+function parseMoney(value?: string) {
+  if (!value) return 0;
+  const normalized = String(value).replace(/\./g, "").replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isFaturaAberta(fatura: IxcFatura) {
+  const status = String(fatura.status || fatura.status_cobranca || "").trim().toUpperCase();
+  const valorAberto = parseMoney(fatura.valor_aberto);
+  const valorRecebido = parseMoney(fatura.valor_recebido);
+
+  // IXC costuma usar status A para aberto. Valor aberto positivo reforça a regra.
+  // Status recebidos/baixados/liquidados ficam fora mesmo se algum campo textual vier estranho.
+  const statusFechado = ["R", "RECEBIDO", "BAIXADO", "PAGO", "C", "CANCELADO", "F", "FECHADO", "LIQUIDADO"].includes(status);
+  if (statusFechado) return false;
+  if (valorAberto > 0) return true;
+  if (status === "A" && valorRecebido <= 0) return true;
+  return false;
+}
+
 export const ixcApi = {
-  // Busca chamados abertos
-  async getChamados(page = 1, status = "A"): Promise<{ total: number; items: IxcChamado[] }> {
+  // Busca chamados abertos. Sem mock em produção: se o IXC falhar, retorna unavailable.
+  async getChamados(page = 1, status = "A"): Promise<{ total: number; items: IxcChamado[]; unavailable?: boolean }> {
     const data = await ixcRequest<IxcListResponse<IxcChamado>>(
       "su_oss_chamado",
       { qtype: "su_oss_chamado.status", query: status, oper: "=", page: String(page), rp: "50", sortname: "su_oss_chamado.data_abertura", sortorder: "desc" }
     );
 
-    if (!data) return { total: 0, items: getMockChamados() };
+    if (!data) return { total: 0, items: [], unavailable: true };
 
-    const items = normalizeRegistros(data.registros);
-    return { total: parseInt(String(data.total || "0"), 10), items };
+    const items = normalizeRegistros(data.registros).filter((chamado) => String(chamado.status || "").toUpperCase() === status.toUpperCase());
+    return { total: parseInt(String(data.total || items.length || "0"), 10), items };
   },
 
   // Busca chamado por ID
@@ -205,22 +233,31 @@ export const ixcApi = {
     return { total: items.length, items };
   },
 
-  // Lista contas a receber/faturas do cliente. Por segurança, não baixa PDF nem envia para cliente.
-  async getFaturasCliente(idCliente: string): Promise<{ total: number; items: IxcFatura[] }> {
+  // Lista contas a receber/faturas abertas do cliente. Por segurança, não baixa PDF nem envia para cliente.
+  async getFaturasCliente(idCliente: string): Promise<{ total: number; items: IxcFatura[]; unavailable?: boolean }> {
     const data = await ixcRequest<IxcListResponse<IxcFatura>>(
       "fn_areceber",
-      { qtype: "fn_areceber.id_cliente", query: idCliente, oper: "=", page: "1", rp: "20", sortname: "fn_areceber.data_vencimento", sortorder: "desc" }
+      { qtype: "fn_areceber.id_cliente", query: idCliente, oper: "=", page: "1", rp: "20", sortname: "fn_areceber.data_vencimento", sortorder: "asc" }
     );
 
-    if (!data) return { total: 0, items: [] };
+    if (!data) return { total: 0, items: [], unavailable: true };
 
-    const items = normalizeRegistros(data.registros).filter((fatura) => {
-      const status = String(fatura.status || "").toUpperCase();
-      const aberto = Number(String(fatura.valor_aberto || "0").replace(",", "."));
-      return !status || ["A", "P", "R"].includes(status) || aberto > 0;
-    });
+    const items = normalizeRegistros(data.registros).filter(isFaturaAberta);
 
     return { total: items.length, items };
+  },
+
+  // Retorna uma única fatura segura para envio assistido.
+  // Se houver zero ou mais de uma fatura aberta, bloqueia para evitar pagamento errado.
+  async getFaturaSeguraCliente(idCliente: string): Promise<
+    | { ok: true; fatura: IxcFatura; total: 1 }
+    | { ok: false; reason: "unavailable" | "none" | "multiple"; total: number; items: IxcFatura[] }
+  > {
+    const result = await this.getFaturasCliente(idCliente);
+    if (result.unavailable) return { ok: false, reason: "unavailable", total: 0, items: [] };
+    if (result.items.length === 0) return { ok: false, reason: "none", total: 0, items: [] };
+    if (result.items.length > 1) return { ok: false, reason: "multiple", total: result.items.length, items: result.items };
+    return { ok: true, fatura: result.items[0], total: 1 };
   },
 
   // Responde um chamado
@@ -241,13 +278,3 @@ export const ixcApi = {
     return !!data;
   },
 };
-
-// Dados mock enquanto API não está acessível
-function getMockChamados(): IxcChamado[] {
-  return [
-    { id: "1001", assunto: "Internet caiu", descricao: "Sem conexão desde ontem à noite", status: "A", prioridade: "A", id_cliente: "101", nome_cliente: "Mario Augusto", data_abertura: new Date(Date.now() - 30 * 60000).toISOString(), data_update: new Date(Date.now() - 30 * 60000).toISOString() },
-    { id: "1002", assunto: "Lentidão na internet", descricao: "Velocidade muito baixa, streaming travando", status: "A", prioridade: "M", id_cliente: "102", nome_cliente: "Edgard Gomes", data_abertura: new Date(Date.now() - 2 * 60 * 60000).toISOString(), data_update: new Date(Date.now() - 2 * 60 * 60000).toISOString() },
-    { id: "1003", assunto: "Roteador sem luz", descricao: "Luz do roteador apagou, sem sinal", status: "A", prioridade: "M", id_cliente: "103", nome_cliente: "Josy Dias", data_abertura: new Date(Date.now() - 4 * 60 * 60000).toISOString(), data_update: new Date(Date.now() - 4 * 60 * 60000).toISOString() },
-    { id: "1004", assunto: "Solicitar mudança de endereço", descricao: "Vou mudar de casa, preciso transferir o serviço", status: "A", prioridade: "B", id_cliente: "104", nome_cliente: "Otavio Santos", data_abertura: new Date(Date.now() - 24 * 60 * 60000).toISOString(), data_update: new Date(Date.now() - 24 * 60 * 60000).toISOString() },
-  ];
-}

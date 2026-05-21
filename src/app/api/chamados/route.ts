@@ -4,6 +4,8 @@ import { ixcApi, type IxcChamado } from "@/lib/ixc";
 export async function GET() {
   const data = await ixcApi.getChamados();
   return NextResponse.json({
+    ok: !data.unavailable,
+    unavailable: Boolean(data.unavailable),
     total: data.total,
     items: data.items.map(toSafeChamado),
   });

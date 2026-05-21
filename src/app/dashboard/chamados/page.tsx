@@ -30,16 +30,10 @@ function timeAgo(dateStr: string, now: number): string {
   return `${Math.floor(hrs / 24)}d`;
 }
 
-const MOCK: Chamado[] = [
-  { id: "1001", assunto: "Internet caiu", descricao: "Sem conexão desde ontem à noite. Testei o roteador e não tem sinal.", status: "A", prioridade: "A", nome_cliente: "Mario Augusto", data_abertura: new Date(Date.now()-30*60000).toISOString(), data_update: new Date(Date.now()-30*60000).toISOString() },
-  { id: "1002", assunto: "Lentidão na internet", descricao: "Velocidade muito baixa, streaming travando constantemente.", status: "A", prioridade: "M", nome_cliente: "Edgard Gomes", data_abertura: new Date(Date.now()-2*3600000).toISOString(), data_update: new Date(Date.now()-2*3600000).toISOString() },
-  { id: "1003", assunto: "Roteador sem luz", descricao: "Luz do roteador apagou completamente, sem sinal nenhum.", status: "A", prioridade: "M", nome_cliente: "Josy Dias", data_abertura: new Date(Date.now()-4*3600000).toISOString(), data_update: new Date(Date.now()-4*3600000).toISOString() },
-  { id: "1004", assunto: "Mudança de endereço", descricao: "Preciso transferir o serviço para novo endereço.", status: "A", prioridade: "B", nome_cliente: "Otavio Santos", data_abertura: new Date(Date.now()-24*3600000).toISOString(), data_update: new Date(Date.now()-24*3600000).toISOString() },
-];
-
 export default function ChamadosPage() {
-  const [chamados,  setChamados]  = useState<Chamado[]>(MOCK);
+  const [chamados,  setChamados]  = useState<Chamado[]>([]);
   const [loading,   setLoading]   = useState(false);
+  const [ixcUnavailable, setIxcUnavailable] = useState(false);
   const [expanded,  setExpanded]  = useState<string | null>(null);
   const [resposta,  setResposta]  = useState<Record<string, string>>({});
   const [sending,   setSending]   = useState<string | null>(null);
@@ -53,9 +47,16 @@ export default function ChamadosPage() {
       const res = await fetch("/api/chamados");
       if (res.ok) {
         const data = await res.json();
-        if (data.items?.length) setChamados(data.items);
+        setIxcUnavailable(Boolean(data.unavailable));
+        setChamados(Array.isArray(data.items) ? data.items : []);
+      } else {
+        setIxcUnavailable(true);
+        setChamados([]);
       }
-    } catch {}
+    } catch {
+      setIxcUnavailable(true);
+      setChamados([]);
+    }
     setLoading(false);
     setLastUpdate(new Date().toLocaleTimeString("pt-BR"));
   }, []);
@@ -99,7 +100,7 @@ export default function ChamadosPage() {
             Chamados GLC Internet
           </h1>
           <p className="text-[#94A3B8] text-sm mt-0.5">
-            {chamados.length} abertos · {urgentes > 0 ? `⚠️ ${urgentes} urgente${urgentes > 1 ? "s" : ""}` : "✅ sem urgências"} · atualizado {lastUpdate}
+            {ixcUnavailable ? "IXC indisponível" : `${chamados.length} abertos`} · {urgentes > 0 ? `⚠️ ${urgentes} urgente${urgentes > 1 ? "s" : ""}` : "✅ sem urgências"} · atualizado {lastUpdate}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -129,8 +130,18 @@ export default function ChamadosPage() {
       <div className="space-y-3">
         {filtered.length === 0 ? (
           <div className="bg-[#1E3050] rounded-2xl border border-[#2A4060] p-10 text-center">
-            <CheckCircle2 className="w-10 h-10 text-[#14B8A6] mx-auto mb-3" />
-            <p className="text-[#94A3B8]">Nenhum chamado nesta categoria 🎉</p>
+            {ixcUnavailable ? (
+              <>
+                <AlertCircle className="w-10 h-10 text-amber-400 mx-auto mb-3" />
+                <p className="text-white font-medium">IXC indisponível ou sem resposta agora.</p>
+                <p className="text-[#94A3B8] text-sm mt-1">Nenhum dado de exemplo é exibido em produção para evitar chamados fantasmas.</p>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-10 h-10 text-[#14B8A6] mx-auto mb-3" />
+                <p className="text-[#94A3B8]">Nenhum chamado aberto nesta categoria 🎉</p>
+              </>
+            )}
           </div>
         ) : filtered.map(c => {
           const prio = prioConfig[c.prioridade] || prioConfig.M;
