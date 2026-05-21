@@ -293,6 +293,18 @@ export const ixcApi = {
     return mergeBoletoDados(fatura, boleto);
   },
 
+  // Retorna PDF do boleto em base64 via get_boleto. Somente leitura/geração de arquivo.
+  async getBoletoArquivoBase64(idReceber: string): Promise<string | null> {
+    const data = await ixcRequest<string | { arquivo?: string; base64?: string; file?: string }>(
+      "get_boleto",
+      { boletos: idReceber, juro: "N", multa: "N", atualiza_boleto: "N", tipo_boleto: "arquivo", base64: "S" }
+    );
+
+    if (!data) return null;
+    if (typeof data === "string") return data.replace(/^"|"$/g, "").trim();
+    return (data.arquivo || data.base64 || data.file || "").trim() || null;
+  },
+
   // Retorna uma única fatura segura para envio assistido.
   // Se houver zero ou mais de uma fatura aberta, bloqueia para evitar pagamento errado.
   async getFaturaSeguraCliente(idCliente: string): Promise<

@@ -33,6 +33,8 @@ type ReplyMarkup = {
   inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
 };
 
+type TelegramDocument = Buffer | Uint8Array;
+
 type AuditContext = {
   userId: number;
   username?: string;
@@ -355,6 +357,29 @@ async function replyFaturaItem(context: AuditContext, kind: string, idCliente: s
     return;
   }
 
+  if (kind === "pdf") {
+    const pdfBase64 = await ixcApi.getBoletoArquivoBase64(fatura.id);
+    if (!pdfBase64) {
+      await sendTelegramMessage(context.chatId, "⚠️ PDF do boleto não retornado pelo IXC nesta fatura.");
+      return;
+    }
+
+    const pdf = Buffer.from(pdfBase64, "base64");
+    if (!pdf.length || !pdf.subarray(0, 4).equals(Buffer.from("%PDF"))) {
+      await sendTelegramMessage(context.chatId, "⚠️ IXC retornou um arquivo inválido para o PDF do boleto.");
+      return;
+    }
+
+    await sendTelegramDocument(
+      context.chatId,
+      pdf,
+      `Boleto interno — fatura ${fatura.id}. Conferir antes de enviar ao cliente.`,
+      `boleto-${fatura.id}.pdf`,
+      "application/pdf"
+    );
+    return;
+  }
+
   if (kind === "link") {
     await sendTelegramMessage(context.chatId, link ? `Link/PDF do boleto da fatura ${escapeHtml(fatura.id)}:
 
@@ -375,6 +400,7 @@ function buildFaturaActionsKeyboard(idCliente: string, fatura: IxcFatura): Reply
   if (pix) row1.push({ text: "1️⃣ QR PIX", callback_data: `fatura_item:qr:${idCliente}` });
   if (linhaDigitavel) row1.push({ text: "2️⃣ Código boleto", callback_data: `fatura_item:linha:${idCliente}` });
   if (pix) row2.push({ text: "3️⃣ PIX copia e cola", callback_data: `fatura_item:pix:${idCliente}` });
+  row2.push({ text: "📄 PDF boleto", callback_data: `fatura_item:pdf:${idCliente}` });
   if (link) row2.push({ text: "4️⃣ Link/PDF boleto", callback_data: `fatura_item:link:${idCliente}` });
 
   const inline_keyboard = [row1, row2].filter((row) => row.length > 0);
@@ -525,6 +551,25 @@ export async function sendTelegramPhoto(chatId: string | number, image: Buffer, 
   if (caption) form.set("caption", truncate(caption, 900));
 
   const res = await fetch(`${TELEGRAM_API}${botToken}/sendPhoto`, {
+    method: "POST",
+    body: form,
+  });
+
+  return res.json();
+}
+
+export async function sendTelegramDocument(chatId: string | number, document: TelegramDocument, caption?: string, filename = "documento.pdf", contentType = "application/pdf") {
+  const { botToken } = getTelegramConfig();
+  if (!botToken) return { ok: false, error: "TELEGRAM_BOT_TOKEN ausente" };
+
+  const bytes = Buffer.isBuffer(document) ? document : Buffer.from(document);
+  const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const form = new FormData();
+  form.set("chat_id", String(chatId));
+  form.set("document", new Blob([arrayBuffer], { type: contentType }), filename);
+  if (caption) form.set("caption", truncate(caption, 900));
+
+  const res = await fetch(`${TELEGRAM_API}${botToken}/sendDocument`, {
     method: "POST",
     body: form,
   });
