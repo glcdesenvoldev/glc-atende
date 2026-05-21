@@ -1,6 +1,7 @@
 import { appendFile, mkdir } from "fs/promises";
 import { dirname } from "path";
 import QRCode from "qrcode";
+import bwipjs from "bwip-js/node";
 import { ixcApi, type IxcChamado, type IxcCliente, type IxcFatura } from "@/lib/ixc";
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
@@ -299,6 +300,19 @@ async function replyFaturaSegura(context: AuditContext, idCliente: string, actio
     `✅ Fatura segura localizada para cliente ${escapeHtml(clean)}\n\n${formatFatura(result.fatura)}\n\n⚠️ Conferir nome/cliente no IXC antes de enviar ao cliente. Envio automático externo continua bloqueado nesta fase.`
   );
 
+  const linhaDigitavel = result.fatura.linha_digitavel || result.fatura.boleto;
+  if (linhaDigitavel) {
+    const barcode = await generateBoletoBarcode(linhaDigitavel);
+    if (barcode) {
+      await sendTelegramPhoto(
+        context.chatId,
+        barcode,
+        `Código de barras interno do boleto — fatura ${result.fatura.id}. Conferir antes de enviar ao cliente.`,
+        "boleto-codigo-barras.png"
+      );
+    }
+  }
+
   const pix = result.fatura.pix_copia_cola || result.fatura.pix;
   if (pix) {
     const qr = await generatePixQrCode(pix);
@@ -306,10 +320,40 @@ async function replyFaturaSegura(context: AuditContext, idCliente: string, actio
       await sendTelegramPhoto(
         context.chatId,
         qr,
-        `PIX QR Code interno — fatura ${result.fatura.id}. Conferir antes de enviar ao cliente.`
+        `PIX QR Code interno — fatura ${result.fatura.id}. Conferir antes de enviar ao cliente.`,
+        "pix-qrcode.png"
       );
     }
   }
+}
+
+async function generateBoletoBarcode(linhaDigitavel: string) {
+  const barcode = boletoLinhaDigitavelToBarcode(linhaDigitavel);
+  if (!barcode) return null;
+
+  try {
+    return await bwipjs.toBuffer({
+      bcid: "interleaved2of5",
+      text: barcode,
+      scale: 2,
+      height: 14,
+      includetext: true,
+      textxalign: "center",
+      paddingwidth: 8,
+      paddingheight: 8,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function boletoLinhaDigitavelToBarcode(value: string) {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length === 44) return digits;
+  if (digits.length !== 47) return "";
+
+  // Linha digitável boleto bancário: 5 campos -> código de barras de 44 dígitos.
+  return `${digits.slice(0, 4)}${digits.slice(32, 47)}${digits.slice(4, 9)}${digits.slice(10, 20)}${digits.slice(21, 31)}`;
 }
 
 async function generatePixQrCode(payload: string) {
@@ -446,13 +490,13 @@ function parseCsvIds(value?: string) {
     .filter(Boolean);
 }
 
-export async function sendTelegramPhoto(chatId: string | number, image: Buffer, caption?: string) {
+export async function sendTelegramPhoto(chatId: string | number, image: Buffer, caption?: string, filename = "imagem.png") {
   const { botToken } = getTelegramConfig();
   if (!botToken) return { ok: false, error: "TELEGRAM_BOT_TOKEN ausente" };
 
   const form = new FormData();
   form.set("chat_id", String(chatId));
-  form.set("photo", new Blob([new Uint8Array(image)], { type: "image/png" }), "pix-qrcode.png");
+  form.set("photo", new Blob([new Uint8Array(image)], { type: "image/png" }), filename);
   if (caption) form.set("caption", truncate(caption, 900));
 
   const res = await fetch(`${TELEGRAM_API}${botToken}/sendPhoto`, {
@@ -537,8 +581,22 @@ function formatFatura(fatura: IxcFatura) {
   const linhaDigitavel = fatura.linha_digitavel || fatura.boleto;
   const pix = fatura.pix_copia_cola || fatura.pix;
 
-  if (linhaDigitavel) partes.push(`Linha digitável: ${escapeHtml(linhaDigitavel)}`);
-  if (pix) partes.push(`PIX copia e cola: ${escapeHtml(pix)}`);
+  if (linhaDigitavel) {
+    partes.push(`Linha digitável: ${escapeHtml(linhaDigitavel)}`);
+    partes.push("Código de barras: enviado abaixo em imagem interna.");
+  } else {
+    partes.push("Código de barras/linha digitável: não retornado pelo IXC nesta consulta.");
+  }
+
+  if (pix) {
+    partes.push(`PIX copia e cola: ${escapeHtml(pix)}`);
+    partes.push("PIX QR Code: enviado abaixo em imagem interna.");
+  } else if (fatura.pix_txid) {
+    partes.push("PIX: IXC retornou apenas TXID, sem copia-e-cola. QR PIX não gerado por segurança.");
+  } else {
+    partes.push("PIX copia-e-cola/QR: não retornado pelo IXC nesta consulta.");
+  }
+
   const link = fatura.link || fatura.gateway_link;
   if (link) partes.push(`Link: ${escapeHtml(link)}`);
 
