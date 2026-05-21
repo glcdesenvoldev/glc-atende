@@ -1,5 +1,6 @@
 import { appendFile, mkdir } from "fs/promises";
 import { dirname } from "path";
+import QRCode from "qrcode";
 import { ixcApi, type IxcChamado, type IxcCliente, type IxcFatura } from "@/lib/ixc";
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
@@ -297,6 +298,33 @@ async function replyFaturaSegura(context: AuditContext, idCliente: string, actio
     context.chatId,
     `✅ Fatura segura localizada para cliente ${escapeHtml(clean)}\n\n${formatFatura(result.fatura)}\n\n⚠️ Conferir nome/cliente no IXC antes de enviar ao cliente. Envio automático externo continua bloqueado nesta fase.`
   );
+
+  const pix = result.fatura.pix_copia_cola || result.fatura.pix;
+  if (pix) {
+    const qr = await generatePixQrCode(pix);
+    if (qr) {
+      await sendTelegramPhoto(
+        context.chatId,
+        qr,
+        `PIX QR Code interno — fatura ${result.fatura.id}. Conferir antes de enviar ao cliente.`
+      );
+    }
+  }
+}
+
+async function generatePixQrCode(payload: string) {
+  const clean = payload.trim();
+  if (!clean) return null;
+  try {
+    return await QRCode.toBuffer(clean, {
+      type: "png",
+      errorCorrectionLevel: "M",
+      margin: 2,
+      scale: 6,
+    });
+  } catch {
+    return null;
+  }
 }
 
 export async function sendTelegramMessage(chatId: string | number, text: string, replyMarkup?: ReplyMarkup) {
@@ -416,6 +444,23 @@ function parseCsvIds(value?: string) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+export async function sendTelegramPhoto(chatId: string | number, image: Buffer, caption?: string) {
+  const { botToken } = getTelegramConfig();
+  if (!botToken) return { ok: false, error: "TELEGRAM_BOT_TOKEN ausente" };
+
+  const form = new FormData();
+  form.set("chat_id", String(chatId));
+  form.set("photo", new Blob([new Uint8Array(image)], { type: "image/png" }), "pix-qrcode.png");
+  if (caption) form.set("caption", truncate(caption, 900));
+
+  const res = await fetch(`${TELEGRAM_API}${botToken}/sendPhoto`, {
+    method: "POST",
+    body: form,
+  });
+
+  return res.json();
 }
 
 function helpText() {
