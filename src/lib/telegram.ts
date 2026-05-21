@@ -99,7 +99,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate) {
 }
 
 async function handleCallback(context: AuditContext, data: string) {
-  const [action, value] = data.split(":");
+  const [action, value, extra] = data.split(":");
 
   if (action === "faturas" && value) {
     await replyFaturas(context, value, "faturas_callback");
@@ -108,6 +108,11 @@ async function handleCallback(context: AuditContext, data: string) {
 
   if (action === "fatura_segura" && value) {
     await replyFaturaSegura(context, value, "fatura_segura_callback");
+    return;
+  }
+
+  if (action === "fatura_item" && value && extra) {
+    await replyFaturaItem(context, value, extra);
     return;
   }
 
@@ -296,22 +301,84 @@ async function replyFaturaSegura(context: AuditContext, idCliente: string, actio
   await auditLog(context, { action, status: "success", clientId: clean, resultCount: 1, faturaIds: [result.fatura.id] });
   await sendTelegramMessage(
     context.chatId,
-    `✅ Fatura segura localizada para cliente ${escapeHtml(clean)}\n\n${formatFatura(result.fatura)}\n\n⚠️ Conferir nome/cliente no IXC antes de enviar ao cliente. Envio automático externo continua bloqueado nesta fase.`
+    `✅ Fatura segura localizada para cliente ${escapeHtml(clean)}
+
+${formatFatura(result.fatura)}
+
+Escolha abaixo o que deseja visualizar/copiar.
+
+⚠️ Conferir nome/cliente no IXC antes de enviar ao cliente. Envio automático externo continua bloqueado nesta fase.`,
+    buildFaturaActionsKeyboard(clean, result.fatura)
   );
+}
 
-
-  const pix = result.fatura.pix_copia_cola || result.fatura.pix;
-  if (pix) {
-    const qr = await generatePixQrCode(pix);
-    if (qr) {
-      await sendTelegramPhoto(
-        context.chatId,
-        qr,
-        `PIX QR Code interno — fatura ${result.fatura.id}. Conferir antes de enviar ao cliente.`,
-        "pix-qrcode.png"
-      );
-    }
+async function replyFaturaItem(context: AuditContext, kind: string, idCliente: string) {
+  const result = await ixcApi.getFaturaSeguraCliente(idCliente);
+  if (!result.ok) {
+    await auditLog(context, { action: "fatura_item", status: "blocked", item: kind, clientId: idCliente, reason: result.reason, resultCount: result.total });
+    await sendTelegramMessage(context.chatId, `⚠️ Não foi possível abrir este item. A fatura segura do cliente ${escapeHtml(idCliente)} não está mais disponível.`);
+    return;
   }
+
+  const fatura = result.fatura;
+  const linhaDigitavel = fatura.linha_digitavel || fatura.boleto || "";
+  const pix = fatura.pix_copia_cola || fatura.pix || "";
+  const link = fatura.link || fatura.gateway_link || "";
+
+  await auditLog(context, { action: "fatura_item", status: "success", item: kind, clientId: idCliente, faturaId: fatura.id });
+
+  if (kind === "linha") {
+    await sendTelegramMessage(context.chatId, linhaDigitavel ? `Código numérico / linha digitável da fatura ${escapeHtml(fatura.id)}:
+
+<code>${escapeHtml(linhaDigitavel)}</code>` : "⚠️ Linha digitável/código numérico não retornado pelo IXC nesta fatura.");
+    return;
+  }
+
+  if (kind === "pix") {
+    await sendTelegramMessage(context.chatId, pix ? `PIX copia-e-cola da fatura ${escapeHtml(fatura.id)}:
+
+<code>${escapeHtml(pix)}</code>` : "⚠️ PIX copia-e-cola não retornado pelo IXC nesta fatura.");
+    return;
+  }
+
+  if (kind === "qr") {
+    if (!pix) {
+      await sendTelegramMessage(context.chatId, fatura.pix_txid ? "⚠️ IXC retornou apenas TXID, sem PIX copia-e-cola. QR PIX não gerado por segurança." : "⚠️ PIX copia-e-cola não retornado pelo IXC. QR PIX indisponível.");
+      return;
+    }
+    const qr = await generatePixQrCode(pix);
+    if (!qr) {
+      await sendTelegramMessage(context.chatId, "⚠️ Não consegui gerar o QR PIX com o payload retornado pelo IXC.");
+      return;
+    }
+    await sendTelegramPhoto(context.chatId, qr, `PIX QR Code interno — fatura ${fatura.id}. Conferir antes de enviar ao cliente.`, "pix-qrcode.png");
+    return;
+  }
+
+  if (kind === "link") {
+    await sendTelegramMessage(context.chatId, link ? `Link/PDF do boleto da fatura ${escapeHtml(fatura.id)}:
+
+${escapeHtml(link)}` : "⚠️ Link/PDF do boleto não retornado pelo IXC nesta fatura.");
+    return;
+  }
+
+  await sendTelegramMessage(context.chatId, "Item de fatura não reconhecido.");
+}
+
+function buildFaturaActionsKeyboard(idCliente: string, fatura: IxcFatura): ReplyMarkup | undefined {
+  const linhaDigitavel = fatura.linha_digitavel || fatura.boleto;
+  const pix = fatura.pix_copia_cola || fatura.pix;
+  const link = fatura.link || fatura.gateway_link;
+  const row1: ReplyMarkup["inline_keyboard"][number] = [];
+  const row2: ReplyMarkup["inline_keyboard"][number] = [];
+
+  if (pix) row1.push({ text: "1️⃣ QR PIX", callback_data: `fatura_item:qr:${idCliente}` });
+  if (linhaDigitavel) row1.push({ text: "2️⃣ Código boleto", callback_data: `fatura_item:linha:${idCliente}` });
+  if (pix) row2.push({ text: "3️⃣ PIX copia e cola", callback_data: `fatura_item:pix:${idCliente}` });
+  if (link) row2.push({ text: "4️⃣ Link/PDF boleto", callback_data: `fatura_item:link:${idCliente}` });
+
+  const inline_keyboard = [row1, row2].filter((row) => row.length > 0);
+  return inline_keyboard.length ? { inline_keyboard } : undefined;
 }
 
 async function generatePixQrCode(payload: string) {
@@ -541,14 +608,14 @@ function formatFatura(fatura: IxcFatura) {
 
   if (linhaDigitavel) {
     partes.push(`Linha digitável: ${escapeHtml(linhaDigitavel)}`);
-    partes.push("Boleto: use a linha digitável ou o link/PDF abaixo, quando disponível.");
+    partes.push("Boleto: use o botão abaixo para copiar o código ou abrir link/PDF.");
   } else {
     partes.push("Código de barras/linha digitável: não retornado pelo IXC nesta consulta.");
   }
 
   if (pix) {
     partes.push(`PIX copia e cola: ${escapeHtml(pix)}`);
-    partes.push("PIX QR Code: enviado abaixo em imagem interna.");
+    partes.push("PIX: use os botões abaixo para QR Code ou copia-e-cola.");
   } else if (fatura.pix_txid) {
     partes.push("PIX: IXC retornou apenas TXID, sem copia-e-cola. QR PIX não gerado por segurança.");
   } else {
