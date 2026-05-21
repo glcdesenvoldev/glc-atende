@@ -1,6 +1,7 @@
 import { appendFile, mkdir } from "fs/promises";
 import { dirname } from "path";
 import QRCode from "qrcode";
+import { createFinanceApproval, decideFinanceApproval, listFinanceApprovals } from "@/lib/finance-approvals";
 import { ixcApi, type IxcChamado, type IxcCliente, type IxcFatura } from "@/lib/ixc";
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
@@ -392,6 +393,11 @@ Toque/segure no código para copiar e colar no app do banco.` : "⚠️ Linha di
     return;
   }
 
+  if (kind === "aprovar") {
+    await replyAprovacaoEnvioManual(context, idCliente, fatura);
+    return;
+  }
+
   if (kind === "link") {
     await sendTelegramMessage(context.chatId, link ? `Link/PDF do boleto da fatura ${escapeHtml(fatura.id)}:
 
@@ -408,16 +414,68 @@ function buildFaturaActionsKeyboard(idCliente: string, fatura: IxcFatura): Reply
   const link = fatura.link || fatura.gateway_link;
   const row1: ReplyMarkup["inline_keyboard"][number] = [];
   const row2: ReplyMarkup["inline_keyboard"][number] = [];
+  const row3: ReplyMarkup["inline_keyboard"][number] = [];
 
   if (linhaDigitavel) row1.push({ text: "📋 Copiar código boleto", callback_data: `fatura_item:linha:${idCliente}` });
   row1.push({ text: "📄 Ver PDF boleto", callback_data: `fatura_item:pdf:${idCliente}` });
   row2.push({ text: "📝 Copiar mensagem cliente", callback_data: `fatura_item:mensagem:${idCliente}` });
   if (pix) row2.push({ text: "🔳 QR PIX", callback_data: `fatura_item:qr:${idCliente}` });
   if (pix) row2.push({ text: "📋 PIX copia e cola", callback_data: `fatura_item:pix:${idCliente}` });
+  row3.push({ text: "✅ Aprovar envio manual", callback_data: `fatura_item:aprovar:${idCliente}` });
   void link;
 
-  const inline_keyboard = [row1, row2].filter((row) => row.length > 0);
+  const inline_keyboard = [row1, row2, row3].filter((row) => row.length > 0);
   return inline_keyboard.length ? { inline_keyboard } : undefined;
+}
+
+async function replyAprovacaoEnvioManual(context: AuditContext, idCliente: string, fatura: IxcFatura) {
+  const approvals = await listFinanceApprovals();
+  const existingApproved = approvals.find(
+    (approval) => approval.status === "approved" && approval.idCliente === idCliente && approval.faturaId === fatura.id
+  );
+
+  if (existingApproved) {
+    await sendTelegramMessage(
+      context.chatId,
+      [
+        `✅ Envio manual já aprovado — fatura ${escapeHtml(fatura.id)}`,
+        `Protocolo: ${escapeHtml(existingApproved.id.slice(0, 8))}`,
+        "",
+        "Nenhuma mensagem foi enviada automaticamente ao cliente.",
+        "Use o botão 📝 Copiar mensagem cliente e envie manualmente após conferência final.",
+      ].join("\n")
+    );
+    return;
+  }
+
+  const createdBy = `telegram:${context.userId}`;
+  const request = await createFinanceApproval({ idCliente, fatura, createdBy });
+  const approval = await decideFinanceApproval({
+    id: request.approval.id,
+    action: "approve",
+    note: "Aprovado pelo Telegram para envio manual. Sem disparo automático.",
+    decidedBy: createdBy,
+  });
+
+  await auditLog(context, {
+    action: "finance_approval_telegram",
+    status: approval?.status || "approved",
+    clientId: idCliente,
+    faturaId: fatura.id,
+    approvalId: request.approval.id,
+  });
+
+  await sendTelegramMessage(
+    context.chatId,
+    [
+      `✅ Aprovado para envio manual — fatura ${escapeHtml(fatura.id)}`,
+      `Protocolo: ${escapeHtml(request.approval.id.slice(0, 8))}`,
+      `Cliente: ${escapeHtml(idCliente)}`,
+      "",
+      "Nenhuma mensagem foi enviada automaticamente ao cliente.",
+      "Use o botão 📝 Copiar mensagem cliente e envie manualmente após conferir nome/cliente/fatura no IXC.",
+    ].join("\n")
+  );
 }
 
 async function generatePixQrCode(payload: string) {
