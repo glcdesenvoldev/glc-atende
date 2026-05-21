@@ -110,6 +110,17 @@ export interface IxcFatura {
   pix?: string;
   pix_copia_cola?: string;
   pix_txid?: string;
+  codigo_barras?: string;
+}
+
+export interface IxcBoletoDados {
+  id_receber?: string;
+  numero_documento?: string;
+  data_vencimento?: string;
+  valor_boleto?: string;
+  linha_digitavel?: string;
+  codigo_barras?: string;
+  id_cliente?: string;
 }
 
 function buildPhoneSearchTerms(digits: string) {
@@ -147,6 +158,24 @@ function parseMoney(value?: string) {
   const normalized = String(value).replace(/\./g, "").replace(",", ".");
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeGetBoletoResponse(data: IxcBoletoDados[] | IxcBoletoDados | null): IxcBoletoDados | null {
+  if (!data) return null;
+  if (Array.isArray(data)) return data[0] || null;
+  return data;
+}
+
+function mergeBoletoDados(fatura: IxcFatura, boleto: IxcBoletoDados | null): IxcFatura {
+  if (!boleto) return fatura;
+  return {
+    ...fatura,
+    linha_digitavel: fatura.linha_digitavel || boleto.linha_digitavel,
+    boleto: fatura.boleto || boleto.codigo_barras,
+    codigo_barras: fatura.codigo_barras || boleto.codigo_barras,
+    data_vencimento: fatura.data_vencimento || boleto.data_vencimento,
+    valor: fatura.valor || boleto.valor_boleto,
+  };
 }
 
 function isFaturaAberta(fatura: IxcFatura) {
@@ -248,6 +277,22 @@ export const ixcApi = {
     return { total: items.length, items };
   },
 
+  // Consulta dados de boleto via endpoint documentado get_boleto.
+  // Somente leitura: não atualiza boleto, não envia e-mail/SMS e não baixa título.
+  async getBoletoDados(idReceber: string): Promise<IxcBoletoDados | null> {
+    const data = await ixcRequest<IxcBoletoDados[] | IxcBoletoDados>(
+      "get_boleto",
+      { boletos: idReceber, juro: "N", multa: "N", atualiza_boleto: "N", tipo_boleto: "dados" }
+    );
+
+    return normalizeGetBoletoResponse(data);
+  },
+
+  async enriquecerFaturaComBoleto(fatura: IxcFatura): Promise<IxcFatura> {
+    const boleto = await this.getBoletoDados(fatura.id);
+    return mergeBoletoDados(fatura, boleto);
+  },
+
   // Retorna uma única fatura segura para envio assistido.
   // Se houver zero ou mais de uma fatura aberta, bloqueia para evitar pagamento errado.
   async getFaturaSeguraCliente(idCliente: string): Promise<
@@ -258,7 +303,9 @@ export const ixcApi = {
     if (result.unavailable) return { ok: false, reason: "unavailable", total: 0, items: [] };
     if (result.items.length === 0) return { ok: false, reason: "none", total: 0, items: [] };
     if (result.items.length > 1) return { ok: false, reason: "multiple", total: result.items.length, items: result.items };
-    return { ok: true, fatura: result.items[0], total: 1 };
+
+    const fatura = await this.enriquecerFaturaComBoleto(result.items[0]);
+    return { ok: true, fatura, total: 1 };
   },
 
   // Responde um chamado

@@ -321,7 +321,7 @@ async function replyFaturaItem(context: AuditContext, kind: string, idCliente: s
   }
 
   const fatura = result.fatura;
-  const linhaDigitavel = fatura.linha_digitavel || fatura.boleto || "";
+  const linhaDigitavel = fatura.linha_digitavel || fatura.codigo_barras || fatura.boleto || "";
   const pix = fatura.pix_copia_cola || fatura.pix || "";
   const link = fatura.link || fatura.gateway_link || "";
 
@@ -366,7 +366,7 @@ ${escapeHtml(link)}` : "⚠️ Link/PDF do boleto não retornado pelo IXC nesta 
 }
 
 function buildFaturaActionsKeyboard(idCliente: string, fatura: IxcFatura): ReplyMarkup | undefined {
-  const linhaDigitavel = fatura.linha_digitavel || fatura.boleto;
+  const linhaDigitavel = fatura.linha_digitavel || fatura.codigo_barras || fatura.boleto;
   const pix = fatura.pix_copia_cola || fatura.pix;
   const link = fatura.link || fatura.gateway_link;
   const row1: ReplyMarkup["inline_keyboard"][number] = [];
@@ -603,7 +603,7 @@ function formatFatura(fatura: IxcFatura) {
     `Status: ${escapeHtml(fatura.status || fatura.status_cobranca || "-")}`,
   ];
 
-  const linhaDigitavel = fatura.linha_digitavel || fatura.boleto;
+  const linhaDigitavel = fatura.linha_digitavel || fatura.codigo_barras || fatura.boleto;
   const pix = fatura.pix_copia_cola || fatura.pix;
 
   if (linhaDigitavel) {
