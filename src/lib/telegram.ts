@@ -131,6 +131,16 @@ async function handleCallback(context: AuditContext, data: string) {
     return;
   }
 
+  if (action === "status_shortcut" && value === "chamados") {
+    await replyChamados(context);
+    return;
+  }
+
+  if (action === "status_shortcut" && value === "financeiro") {
+    await replyResumoFinanceiro(context);
+    return;
+  }
+
   if (action === "cliente" && value) {
     await replyCliente(context, value, "cliente_callback");
     return;
@@ -177,6 +187,11 @@ async function handleCommand(context: AuditContext, text: string) {
         return;
       }
       await replyChamado(context, arg);
+      return;
+
+    case "/status_glc":
+    case "/sg":
+      await replyStatusOperacional(context);
       return;
 
     case "/cliente":
@@ -229,6 +244,67 @@ async function handleCommand(context: AuditContext, text: string) {
       await auditLog(context, { action: "unknown_command", status: "ignored", command });
       await sendTelegramMessage(context.chatId, `Comando não reconhecido.\n\n${helpText()}`);
   }
+}
+
+async function replyStatusOperacional(context: AuditContext) {
+  const [chamados, approvals] = await Promise.all([
+    ixcApi.getChamados(1, "A").catch(() => ({ total: 0, items: [], unavailable: true })),
+    listFinanceApprovals(),
+  ]);
+
+  const totals = approvals.reduce<Record<string, number>>((acc, approval) => {
+    acc[approval.status] = (acc[approval.status] || 0) + 1;
+    return acc;
+  }, {});
+  const approvedOpen = approvals.filter((approval) => approval.status === "approved").length;
+  const pending = approvals.filter((approval) => approval.status === "pending").length;
+  const manualSentValue = approvals
+    .filter((approval) => approval.status === "manual_sent")
+    .reduce((sum, approval) => sum + parseMoneyNumber(approval.valor), 0);
+
+  const chamadosUnavailable = "unavailable" in chamados && chamados.unavailable;
+  const chamadosTotal = chamadosUnavailable ? "IXC indisponível" : String(chamados.total || chamados.items.length || 0);
+
+  await auditLog(context, {
+    action: "operational_status",
+    status: chamadosUnavailable ? "partial" : "success",
+    chamadosTotal,
+    financeApprovals: approvals.length,
+  });
+
+  await sendTelegramMessage(
+    context.chatId,
+    [
+      "📊 Status operacional — GLC Atende",
+      "",
+      "Chamados IXC",
+      `• Abertos: ${escapeHtml(chamadosTotal)}`,
+      chamadosUnavailable ? "• ⚠️ IXC indisponível ou sem resposta no momento." : "",
+      "",
+      "Financeiro interno",
+      `• ⏳ Pendentes: ${totals.pending || 0}`,
+      `• ✅ Aprovadas aguardando envio manual: ${totals.approved || 0}`,
+      `• 📌 Enviadas manualmente: ${totals.manual_sent || 0}`,
+      `• ❌ Rejeitadas: ${totals.rejected || 0}`,
+      `• 💰 Valor enviado manualmente: R$ ${formatMoneyNumber(manualSentValue)}`,
+      "",
+      approvedOpen ? `Próxima ação: marcar envio manual de ${approvedOpen} aprovação(ões), se já tiver enviado ao cliente.` : "Próxima ação: nenhuma aprovação aguardando envio manual.",
+      pending ? `Atenção: ${pending} solicitação(ões) pendente(s) de aprovação.` : "",
+    ].filter(Boolean).join("\n"),
+    buildStatusOperacionalKeyboard()
+  );
+}
+
+function buildStatusOperacionalKeyboard(): ReplyMarkup {
+  return {
+    inline_keyboard: [[
+      { text: "📋 Chamados", callback_data: "status_shortcut:chamados" },
+      { text: "📊 Financeiro", callback_data: "status_shortcut:financeiro" },
+    ], [
+      { text: "⏳ Pendentes", callback_data: "aprovacoes_filter:pendentes" },
+      { text: "✅ Aprovadas", callback_data: "aprovacoes_filter:aprovadas" },
+    ]],
+  };
 }
 
 async function replyChamados(context: AuditContext) {
@@ -872,6 +948,7 @@ function helpText() {
   return [
     "🤖 GLC Atende — comandos internos",
     "",
+    "/status_glc ou /sg — resumo operacional: chamados + financeiro interno",
     "/chamados ou /abertos — lista chamados abertos",
     "/chamado ID — detalhe rápido de um chamado",
     "/cliente ID|telefone|nome — consulta cliente",
