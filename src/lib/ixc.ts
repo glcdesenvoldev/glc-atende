@@ -1,3 +1,5 @@
+import { isCnpj, isCpf } from "@/lib/lgpd";
+
 /**
  * IXC Soft API Client
  *
@@ -264,9 +266,16 @@ export const ixcApi = {
 
     const onlyDigits = clean.replace(/\D/g, "");
     const phoneQueries = onlyDigits ? buildPhoneSearchTerms(onlyDigits) : [];
+    const documentSearches = isCpf(clean) || isCnpj(clean)
+      ? [
+          { qtype: "cliente.cnpj_cpf", query: onlyDigits, oper: "=" },
+          { qtype: "cliente.cnpj_cpf", query: clean, oper: "=" },
+        ]
+      : [];
     const searches = onlyDigits
       ? [
           { qtype: "cliente.id", query: onlyDigits, oper: "=" },
+          ...documentSearches,
           ...phoneQueries.flatMap((phoneQuery) => [
             { qtype: "cliente.telefone_celular", query: phoneQuery, oper: "L" },
             { qtype: "cliente.fone_celular", query: phoneQuery, oper: "L" },

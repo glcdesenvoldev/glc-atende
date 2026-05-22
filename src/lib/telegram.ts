@@ -2,6 +2,7 @@ import { appendFile, mkdir } from "fs/promises";
 import { dirname } from "path";
 import QRCode from "qrcode";
 import { createFinanceApproval, decideFinanceApproval, listFinanceApprovals, markFinanceApprovalManualSent } from "@/lib/finance-approvals";
+import { digitsOnly, isCnpj, isCpf, sanitizeForAudit } from "@/lib/lgpd";
 import { ixcApi, type IxcChamado, type IxcCliente, type IxcFatura } from "@/lib/ixc";
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
@@ -936,7 +937,9 @@ export async function sendTelegramMessage(chatId: string | number, text: string,
 
 function classifyLookupTerm(value: string) {
   const clean = value.trim();
-  const digits = clean.replace(/\D/g, "");
+  const digits = digitsOnly(clean);
+  if (isCpf(clean)) return "cpf";
+  if (isCnpj(clean)) return "cnpj";
   if (/^\d+$/.test(clean) && clean.length <= 7) return "id";
   if (digits.length >= 10) return "phone";
   if (/^\d+$/.test(clean)) return "numeric";
@@ -959,7 +962,7 @@ async function auditLog(context: AuditContext, event: Record<string, unknown>) {
 
   try {
     await mkdir(dirname(logPath), { recursive: true });
-    await appendFile(logPath, `${JSON.stringify(payload)}
+    await appendFile(logPath, `${JSON.stringify(sanitizeForAudit(payload))}
 `, "utf8");
   } catch (error) {
     console.error("telegram_audit_log_failed", error);

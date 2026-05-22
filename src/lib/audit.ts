@@ -1,12 +1,13 @@
 import { mkdir, readFile, writeFile, appendFile } from "node:fs/promises";
 import path from "node:path";
+import { sanitizeForAudit } from "@/lib/lgpd";
 
 const dataDir = process.env.DATA_DIR || "/tmp/glc-atende";
 const auditDir = path.join(dataDir, "audit");
 
 export async function appendAudit(event: Record<string, unknown>) {
   await mkdir(auditDir, { recursive: true });
-  const line = JSON.stringify({ ts: new Date().toISOString(), ...event });
+  const line = JSON.stringify(sanitizeForAudit({ ts: new Date().toISOString(), ...event }));
   await appendFile(path.join(auditDir, "events.jsonl"), `${line}\n`, "utf8");
 }
 
