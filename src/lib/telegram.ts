@@ -126,6 +126,11 @@ async function handleCallback(context: AuditContext, data: string) {
     return;
   }
 
+  if (action === "aprovacoes_filter" && value) {
+    await replyAprovacoesFinanceiras(context, value);
+    return;
+  }
+
   if (action === "cliente" && value) {
     await replyCliente(context, value, "cliente_callback");
     return;
@@ -331,10 +336,13 @@ Ações disponíveis:
 }
 
 async function replyAprovacoesFinanceiras(context: AuditContext, filter = "") {
-  const cleanFilter = filter.trim();
+  const cleanFilter = filter.trim().toLowerCase();
   const all = await listFinanceApprovals();
+  const statusFilter = parseAprovacaoStatusFilter(cleanFilter);
   const filtered = cleanFilter
-    ? all.filter((approval) => approval.idCliente === cleanFilter || approval.faturaId === cleanFilter || approval.id.startsWith(cleanFilter))
+    ? all.filter((approval) => statusFilter
+      ? approval.status === statusFilter
+      : approval.idCliente === cleanFilter || approval.faturaId === cleanFilter || approval.id.startsWith(cleanFilter))
     : all;
   const items = filtered.slice(0, 8);
 
@@ -345,7 +353,8 @@ async function replyAprovacoesFinanceiras(context: AuditContext, filter = "") {
       context.chatId,
       cleanFilter
         ? `Nenhuma aprovação encontrada para ${escapeHtml(cleanFilter)}.`
-        : "Nenhuma aprovação financeira registrada ainda."
+        : "Nenhuma aprovação financeira registrada ainda.",
+      buildAprovacoesFilterKeyboard()
     );
     return;
   }
@@ -359,9 +368,34 @@ async function replyAprovacoesFinanceiras(context: AuditContext, filter = "") {
 
   await sendTelegramMessage(
     context.chatId,
-    ["📋 Aprovações financeiras internas", "", ...lines].join("\n\n"),
-    buildAprovacoesListKeyboard(items)
+    ["📋 Aprovações financeiras internas", cleanFilter ? `Filtro: ${escapeHtml(cleanFilter)}` : "", ...lines].filter(Boolean).join("\n\n"),
+    mergeKeyboards(buildAprovacoesFilterKeyboard(), buildAprovacoesListKeyboard(items))
   );
+}
+
+function parseAprovacaoStatusFilter(filter: string) {
+  if (["pendente", "pendentes", "pending"].includes(filter)) return "pending";
+  if (["aprovada", "aprovadas", "aprovado", "aprovados", "approved"].includes(filter)) return "approved";
+  if (["enviada", "enviadas", "enviado", "enviados", "manual_sent"].includes(filter)) return "manual_sent";
+  if (["rejeitada", "rejeitadas", "rejeitado", "rejeitados", "rejected"].includes(filter)) return "rejected";
+  return "";
+}
+
+function buildAprovacoesFilterKeyboard(): ReplyMarkup {
+  return {
+    inline_keyboard: [[
+      { text: "⏳ Pendentes", callback_data: "aprovacoes_filter:pendentes" },
+      { text: "✅ Aprovadas", callback_data: "aprovacoes_filter:aprovadas" },
+    ], [
+      { text: "📌 Enviadas", callback_data: "aprovacoes_filter:enviadas" },
+      { text: "❌ Rejeitadas", callback_data: "aprovacoes_filter:rejeitadas" },
+    ]],
+  };
+}
+
+function mergeKeyboards(...keyboards: Array<ReplyMarkup | undefined>): ReplyMarkup | undefined {
+  const rows = keyboards.flatMap((keyboard) => keyboard?.inline_keyboard || []);
+  return rows.length ? { inline_keyboard: rows } : undefined;
 }
 
 function buildAprovacoesListKeyboard(items: Awaited<ReturnType<typeof listFinanceApprovals>>): ReplyMarkup | undefined {
@@ -785,6 +819,7 @@ function helpText() {
     "/faturas ID_CLIENTE — lista faturas abertas/localizadas",
     "/fatura_segura ID_CLIENTE ou /fs ID_CLIENTE — só retorna se existir exatamente 1 fatura aberta",
     "/aprovacoes ou /ap — lista últimas aprovações/envios manuais financeiros",
+    "/aprovacoes pendentes|aprovadas|enviadas|rejeitadas — filtra por status",
     "/aprovacoes ID_CLIENTE|ID_FATURA|PROTOCOLO — filtra aprovações",
     "/pix ID_FATURA — bloqueado por segurança nesta fase",
     "/boleto ID_FATURA — bloqueado por segurança nesta fase",
