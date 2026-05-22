@@ -45,7 +45,23 @@ async function runWitMonitor(request: NextRequest) {
 
   const dryRun = request.nextUrl.searchParams.get("dryRun") !== "0";
   const notify = request.nextUrl.searchParams.get("notify") === "1";
+  const monitorEnabled = process.env.WIT_MONITOR_ENABLED === "1";
   const rules = getRules(request);
+
+  if (notify && !monitorEnabled) {
+    await appendAudit({ source: "wit_monitor", action: dryRun ? "dry_run_disabled" : "poll_disabled", status: "skipped" });
+    return NextResponse.json({
+      ok: true,
+      disabled: true,
+      configured: false,
+      dryRun,
+      notify,
+      ticketCount: 0,
+      alertCount: 0,
+      message: "Monitor WIT/Mundiale desativado por WIT_MONITOR_ENABLED. Nenhum alerta será enviado.",
+      rules: serializeRules(rules),
+    });
+  }
   const auth = getWitAuthFromHeaders(request.headers) || getWitAuthFromEnv() || await getWitAuthFromStorageState();
 
   if (!auth) {
