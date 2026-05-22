@@ -106,6 +106,11 @@ export async function handleTelegramUpdate(update: TelegramUpdate) {
 async function handleCallback(context: AuditContext, data: string) {
   const [action, value, extra] = data.split(":");
 
+  if (action === "menu" && value) {
+    await handleMenuCallback(context, value);
+    return;
+  }
+
   if (action === "faturas" && value) {
     await replyFaturas(context, value, "faturas_callback");
     return;
@@ -176,6 +181,10 @@ async function handleCommand(context: AuditContext, text: string) {
       await sendTelegramMessage(context.chatId, helpText());
       return;
 
+    case "/menu":
+      await replyMenuPrincipal(context);
+      return;
+
     case "/chamados":
     case "/abertos":
       await replyChamados(context);
@@ -244,6 +253,66 @@ async function handleCommand(context: AuditContext, text: string) {
       await auditLog(context, { action: "unknown_command", status: "ignored", command });
       await sendTelegramMessage(context.chatId, `Comando não reconhecido.\n\n${helpText()}`);
   }
+}
+
+async function replyMenuPrincipal(context: AuditContext) {
+  await auditLog(context, { action: "menu", status: "success" });
+  await sendTelegramMessage(
+    context.chatId,
+    [
+      "⚡ GLC Atende — menu principal",
+      "",
+      "Escolha uma ação rápida:",
+      "",
+      "📊 Status geral: chamados + financeiro",
+      "📋 Chamados: lista chamados abertos",
+      "💰 Financeiro: resumo/aprovações internas",
+      "🔎 Cliente: use /c nome, telefone ou ID",
+      "🧾 Fatura segura: use /fs ID_CLIENTE",
+      "",
+      "⚠️ Ações financeiras continuam em modo seguro: sem envio automático ao cliente e sem alteração no IXC.",
+    ].join("\n"),
+    buildMenuPrincipalKeyboard()
+  );
+}
+
+async function handleMenuCallback(context: AuditContext, value: string) {
+  if (value === "status") {
+    await replyStatusOperacional(context);
+    return;
+  }
+  if (value === "chamados") {
+    await replyChamados(context);
+    return;
+  }
+  if (value === "financeiro") {
+    await replyResumoFinanceiro(context);
+    return;
+  }
+  if (value === "aprovacoes") {
+    await replyAprovacoesFinanceiras(context);
+    return;
+  }
+  if (value === "help") {
+    await sendTelegramMessage(context.chatId, helpText());
+    return;
+  }
+
+  await sendTelegramMessage(context.chatId, "Opção do menu não reconhecida.");
+}
+
+function buildMenuPrincipalKeyboard(): ReplyMarkup {
+  return {
+    inline_keyboard: [[
+      { text: "📊 Status GLC", callback_data: "menu:status" },
+      { text: "📋 Chamados", callback_data: "menu:chamados" },
+    ], [
+      { text: "💰 Resumo financeiro", callback_data: "menu:financeiro" },
+      { text: "📌 Aprovações", callback_data: "menu:aprovacoes" },
+    ], [
+      { text: "❓ Ajuda", callback_data: "menu:help" },
+    ]],
+  };
 }
 
 async function replyStatusOperacional(context: AuditContext) {
@@ -948,6 +1017,7 @@ function helpText() {
   return [
     "🤖 GLC Atende — comandos internos",
     "",
+    "/menu — abre botões principais do GLC Atende",
     "/status_glc ou /sg — resumo operacional: chamados + financeiro interno",
     "/chamados ou /abertos — lista chamados abertos",
     "/chamado ID — detalhe rápido de um chamado",
