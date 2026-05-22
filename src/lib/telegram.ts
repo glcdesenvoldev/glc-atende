@@ -359,8 +359,21 @@ async function replyAprovacoesFinanceiras(context: AuditContext, filter = "") {
 
   await sendTelegramMessage(
     context.chatId,
-    ["📋 Aprovações financeiras internas", "", ...lines].join("\n\n")
+    ["📋 Aprovações financeiras internas", "", ...lines].join("\n\n"),
+    buildAprovacoesListKeyboard(items)
   );
+}
+
+function buildAprovacoesListKeyboard(items: Awaited<ReturnType<typeof listFinanceApprovals>>): ReplyMarkup | undefined {
+  const rows = items
+    .filter((approval) => approval.status === "approved")
+    .slice(0, 8)
+    .map((approval) => ([{
+      text: `📌 Marcar enviado ${approval.id.slice(0, 8)}`,
+      callback_data: `approval_sent:${approval.id}`,
+    }]));
+
+  return rows.length ? { inline_keyboard: rows } : undefined;
 }
 
 async function replyFaturaItem(context: AuditContext, kind: string, idCliente: string) {
