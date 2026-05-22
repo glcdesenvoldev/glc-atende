@@ -201,6 +201,11 @@ async function handleCommand(context: AuditContext, text: string) {
       await replyFaturaSegura(context, arg, command === "/fs" ? "fatura_segura_short_command" : "fatura_segura_command");
       return;
 
+    case "/aprovacoes":
+    case "/ap":
+      await replyAprovacoesFinanceiras(context, arg);
+      return;
+
     case "/pix":
     case "/boleto":
       await auditLog(context, { action: command.slice(1), status: "blocked" });
@@ -322,6 +327,39 @@ Ações disponíveis:
 
 ⚠️ Conferir nome/cliente no IXC antes de enviar ao cliente. Envio automático externo continua bloqueado nesta fase.`,
     buildFaturaActionsKeyboard(clean, result.fatura)
+  );
+}
+
+async function replyAprovacoesFinanceiras(context: AuditContext, filter = "") {
+  const cleanFilter = filter.trim();
+  const all = await listFinanceApprovals();
+  const filtered = cleanFilter
+    ? all.filter((approval) => approval.idCliente === cleanFilter || approval.faturaId === cleanFilter || approval.id.startsWith(cleanFilter))
+    : all;
+  const items = filtered.slice(0, 8);
+
+  await auditLog(context, { action: "finance_approvals_list", status: "success", resultCount: items.length, command: cleanFilter || "all" });
+
+  if (!items.length) {
+    await sendTelegramMessage(
+      context.chatId,
+      cleanFilter
+        ? `Nenhuma aprovação encontrada para ${escapeHtml(cleanFilter)}.`
+        : "Nenhuma aprovação financeira registrada ainda."
+    );
+    return;
+  }
+
+  const lines = items.map((approval) => [
+    `${statusEmojiAprovacao(approval.status)} ${statusLabelAprovacao(approval.status)} — protocolo ${escapeHtml(approval.id.slice(0, 8))}`,
+    `Cliente: ${escapeHtml(approval.idCliente)} · Fatura: ${escapeHtml(approval.faturaId)}`,
+    `Valor: R$ ${escapeHtml(approval.valor || "-")} · Venc.: ${escapeHtml(approval.dataVencimento || "-")}`,
+    `Atualizado: ${escapeHtml(formatTelegramDate(approval.updatedAt))}`,
+  ].join("\n"));
+
+  await sendTelegramMessage(
+    context.chatId,
+    ["📋 Aprovações financeiras internas", "", ...lines].join("\n\n")
   );
 }
 
@@ -733,6 +771,8 @@ function helpText() {
     "Operador: acesso permitido seg-sex, 08:00-18:00",
     "/faturas ID_CLIENTE — lista faturas abertas/localizadas",
     "/fatura_segura ID_CLIENTE ou /fs ID_CLIENTE — só retorna se existir exatamente 1 fatura aberta",
+    "/aprovacoes ou /ap — lista últimas aprovações/envios manuais financeiros",
+    "/aprovacoes ID_CLIENTE|ID_FATURA|PROTOCOLO — filtra aprovações",
     "/pix ID_FATURA — bloqueado por segurança nesta fase",
     "/boleto ID_FATURA — bloqueado por segurança nesta fase",
   ].join("\n");
@@ -835,6 +875,34 @@ function formatFatura(fatura: IxcFatura) {
   }
 
   return partes.join("\n");
+}
+
+function statusLabelAprovacao(status: string) {
+  if (status === "pending") return "pendente";
+  if (status === "approved") return "aprovado";
+  if (status === "manual_sent") return "enviado manualmente";
+  if (status === "rejected") return "rejeitado";
+  return status || "-";
+}
+
+function statusEmojiAprovacao(status: string) {
+  if (status === "pending") return "⏳";
+  if (status === "approved") return "✅";
+  if (status === "manual_sent") return "📌";
+  if (status === "rejected") return "❌";
+  return "•";
+}
+
+function formatTelegramDate(value: string) {
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
 }
 
 function escapeHtml(value: string | number) {
