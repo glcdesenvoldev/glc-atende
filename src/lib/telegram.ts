@@ -211,6 +211,11 @@ async function handleCommand(context: AuditContext, text: string) {
       await replyAprovacoesFinanceiras(context, arg);
       return;
 
+    case "/resumo_financeiro":
+    case "/rf":
+      await replyResumoFinanceiro(context);
+      return;
+
     case "/pix":
     case "/boleto":
       await auditLog(context, { action: command.slice(1), status: "blocked" });
@@ -333,6 +338,64 @@ Ações disponíveis:
 ⚠️ Conferir nome/cliente no IXC antes de enviar ao cliente. Envio automático externo continua bloqueado nesta fase.`,
     buildFaturaActionsKeyboard(clean, result.fatura)
   );
+}
+
+async function replyResumoFinanceiro(context: AuditContext) {
+  const approvals = await listFinanceApprovals();
+  const totals = approvals.reduce<Record<string, number>>((acc, approval) => {
+    acc[approval.status] = (acc[approval.status] || 0) + 1;
+    return acc;
+  }, {});
+  const approvedOpen = approvals.filter((approval) => approval.status === "approved");
+  const pending = approvals.filter((approval) => approval.status === "pending");
+  const totalValorManualSent = approvals
+    .filter((approval) => approval.status === "manual_sent")
+    .reduce((sum, approval) => sum + parseMoneyNumber(approval.valor), 0);
+
+  await auditLog(context, { action: "finance_summary", status: "success", resultCount: approvals.length });
+
+  await sendTelegramMessage(
+    context.chatId,
+    [
+      "📊 Resumo financeiro interno",
+      "",
+      `Total de registros: ${approvals.length}`,
+      `⏳ Pendentes: ${totals.pending || 0}`,
+      `✅ Aprovadas aguardando envio manual: ${totals.approved || 0}`,
+      `📌 Enviadas manualmente: ${totals.manual_sent || 0}`,
+      `❌ Rejeitadas: ${totals.rejected || 0}`,
+      `💰 Valor já marcado como enviado manualmente: R$ ${formatMoneyNumber(totalValorManualSent)}`,
+      "",
+      approvedOpen.length ? `Próxima ação: existem ${approvedOpen.length} aprovação(ões) aguardando marcar envio manual.` : "Próxima ação: nenhuma aprovação aguardando envio manual.",
+      pending.length ? `Atenção: ${pending.length} solicitação(ões) ainda pendente(s) de aprovação.` : "",
+    ].filter(Boolean).join("\n"),
+    buildResumoFinanceiroKeyboard()
+  );
+}
+
+function buildResumoFinanceiroKeyboard(): ReplyMarkup {
+  return {
+    inline_keyboard: [[
+      { text: "⏳ Ver pendentes", callback_data: "aprovacoes_filter:pendentes" },
+      { text: "✅ Ver aprovadas", callback_data: "aprovacoes_filter:aprovadas" },
+    ], [
+      { text: "📌 Ver enviadas", callback_data: "aprovacoes_filter:enviadas" },
+      { text: "📋 Todas", callback_data: "aprovacoes_filter:" },
+    ]],
+  };
+}
+
+function parseMoneyNumber(value: string) {
+  const normalized = String(value || "0")
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\.(?=\d{3}(\D|$))/g, "")
+    .replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatMoneyNumber(value: number) {
+  return value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 async function replyAprovacoesFinanceiras(context: AuditContext, filter = "") {
@@ -818,6 +881,7 @@ function helpText() {
     "Operador: acesso permitido seg-sex, 08:00-18:00",
     "/faturas ID_CLIENTE — lista faturas abertas/localizadas",
     "/fatura_segura ID_CLIENTE ou /fs ID_CLIENTE — só retorna se existir exatamente 1 fatura aberta",
+    "/resumo_financeiro ou /rf — resumo rápido das aprovações financeiras",
     "/aprovacoes ou /ap — lista últimas aprovações/envios manuais financeiros",
     "/aprovacoes pendentes|aprovadas|enviadas|rejeitadas — filtra por status",
     "/aprovacoes ID_CLIENTE|ID_FATURA|PROTOCOLO — filtra aprovações",
