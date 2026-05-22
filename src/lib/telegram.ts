@@ -3,7 +3,7 @@ import { dirname } from "path";
 import QRCode from "qrcode";
 import { createFinanceApproval, decideFinanceApproval, listFinanceApprovals, markFinanceApprovalManualSent } from "@/lib/finance-approvals";
 import { digitsOnly, isCnpj, isCpf, sanitizeForAudit } from "@/lib/lgpd";
-import { ixcApi, type IxcChamado, type IxcCliente, type IxcFatura } from "@/lib/ixc";
+import { ixcApi, type IxcChamado, type IxcCliente, type IxcFatura, type IxcContrato } from "@/lib/ixc";
 import { runRetentionCleanup } from "@/lib/retention";
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
@@ -118,6 +118,11 @@ async function handleCallback(context: AuditContext, data: string) {
     return;
   }
 
+  if (action === "contratos" && value) {
+    await replyContratosCliente(context, value, "contratos_callback");
+    return;
+  }
+
   if (action === "fatura_segura" && value) {
     await replyFaturaSegura(context, value, "fatura_segura_callback");
     return;
@@ -212,6 +217,15 @@ async function handleCommand(context: AuditContext, text: string) {
         return;
       }
       await replyCliente(context, arg, command === "/c" ? "cliente_short_command" : "cliente_command");
+      return;
+
+    case "/contratos":
+    case "/contrato":
+      if (!arg) {
+        await sendTelegramMessage(context.chatId, "Use: /contratos CPF, ID_CLIENTE, telefone ou nome\nEx.: /contratos 123.456.789-00");
+        return;
+      }
+      await replyContratosPorBusca(context, arg, command === "/contrato" ? "contrato_command" : "contratos_command");
       return;
 
     case "/faturas":
@@ -324,11 +338,13 @@ async function handleMenuCallback(context: AuditContext, value: string) {
         "<code>/c ID_CLIENTE</code>",
         "<code>/c telefone com DDD</code>",
         "<code>/c parte do nome</code>",
+        "<code>/contratos CPF</code>",
         "",
         "Exemplos:",
         "<code>/c 179</code>",
         "<code>/c 11999999999</code>",
         "<code>/c maria</code>",
+        "<code>/contratos 123.456.789-00</code>",
         "",
         "No privado, também pode enviar direto o ID, telefone ou nome.",
       ].join("\n"),
@@ -494,6 +510,7 @@ async function replyCliente(context: AuditContext, query: string, action = "clie
   const lines = result.items.slice(0, 5).map(formatCliente);
   const keyboard: ReplyMarkup | undefined = result.items.length === 1
     ? { inline_keyboard: [[
+        { text: "Ver contratos", callback_data: `contratos:${result.items[0].id}` },
         { text: "Ver faturas", callback_data: `faturas:${result.items[0].id}` },
         { text: "Fatura segura", callback_data: `fatura_segura:${result.items[0].id}` },
       ]] }
@@ -501,6 +518,62 @@ async function replyCliente(context: AuditContext, query: string, action = "clie
 
   await auditLog(context, { action, status: "success", queryType: classifyLookupTerm(clean), resultCount: result.items.length, clientIds: result.items.slice(0, 5).map((item) => item.id) });
   await sendTelegramMessage(context.chatId, `👤 Cliente(s) encontrado(s):\n\n${lines.join("\n\n")}`, keyboard);
+}
+
+async function replyContratosPorBusca(context: AuditContext, query: string, action = "contratos_lookup") {
+  const clean = query.trim();
+  const result = await ixcApi.buscarClientes(clean);
+
+  if (result.items.length === 0) {
+    await auditLog(context, { action, status: "not_found", queryType: classifyLookupTerm(clean), resultCount: 0 });
+    await sendTelegramMessage(context.chatId, "Cliente não encontrado para consultar contratos. Tente CPF, ID, telefone com DDD ou parte do nome.");
+    return;
+  }
+
+  if (result.items.length > 1) {
+    const lines = result.items.slice(0, 5).map(formatCliente);
+    await auditLog(context, { action, status: "multiple_clients", queryType: classifyLookupTerm(clean), resultCount: result.items.length, clientIds: result.items.slice(0, 5).map((item) => item.id) });
+    await sendTelegramMessage(
+      context.chatId,
+      `Encontrei mais de um cliente. Use o ID exato para ver contratos:
+
+${lines.join("\n\n")}`
+    );
+    return;
+  }
+
+  await replyContratosCliente(context, result.items[0].id, action, result.items[0]);
+}
+
+async function replyContratosCliente(context: AuditContext, idCliente: string, action = "contratos_lookup", cliente?: IxcCliente) {
+  const cleanId = idCliente.trim();
+  const [clienteDetalhe, contratos] = await Promise.all([
+    cliente ? Promise.resolve(cliente) : ixcApi.getCliente(cleanId).catch(() => null),
+    ixcApi.getContratosCliente(cleanId).catch(() => ({ total: 0, items: [], unavailable: true })),
+  ]);
+
+  if ("unavailable" in contratos && contratos.unavailable) {
+    await auditLog(context, { action, status: "ixc_unavailable", clientId: cleanId });
+    await sendTelegramMessage(context.chatId, `⚠️ Não consegui consultar contratos do cliente ${escapeHtml(cleanId)} no IXC agora.`);
+    return;
+  }
+
+  if (contratos.items.length === 0) {
+    await auditLog(context, { action, status: "success", clientId: cleanId, resultCount: 0 });
+    await sendTelegramMessage(context.chatId, `Nenhum contrato localizado para o cliente ${escapeHtml(cleanId)}.`);
+    return;
+  }
+
+  const header = clienteDetalhe
+    ? `📄 Contrato(s) do cliente ${escapeHtml(clienteDetalhe.id)} — ${escapeHtml(clienteDetalhe.razao || clienteDetalhe.fantasia || "-")}`
+    : `📄 Contrato(s) do cliente ${escapeHtml(cleanId)}`;
+  const lines = contratos.items.slice(0, 10).map(formatContrato);
+
+  await auditLog(context, { action, status: "success", clientId: cleanId, resultCount: contratos.items.length, contratoIds: contratos.items.slice(0, 10).map((item) => item.id) });
+  await sendTelegramMessage(
+    context.chatId,
+    `${header}\n\n${lines.join("\n\n")}\n\nLGPD: consulta interna. Confira no IXC antes de repassar dados ao cliente.`
+  );
 }
 
 async function replyFaturas(context: AuditContext, idCliente: string, action = "faturas_lookup") {
@@ -1104,6 +1177,7 @@ function helpText() {
     "/chamado ID — detalhe rápido de um chamado",
     "/cliente ID|telefone|nome — consulta cliente",
     "/c termo — atalho para consulta de cliente",
+    "/contratos CPF|ID|telefone|nome — consulta contrato(s) do cliente",
     "No privado: envie só o ID, telefone ou nome para buscar cliente",
     "No grupo: /c termo ou /cliente termo",
     "Operador: acesso permitido seg-sex, 08:00-18:00",
@@ -1151,6 +1225,17 @@ function formatCliente(cliente: IxcCliente) {
     `Status: ${escapeHtml(cliente.status || "-")}`,
     `Telefone: ${escapeHtml(telefone)}`,
     endereco ? `Endereço: ${escapeHtml(endereco)}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function formatContrato(contrato: IxcContrato) {
+  const endereco = [contrato.endereco, contrato.numero, contrato.bairro, contrato.cidade].filter(Boolean).join(", ");
+  return [
+    `Contrato: ${escapeHtml(contrato.id || "-")}`,
+    contrato.contrato || contrato.id_vd_contrato || contrato.plano ? `Plano/Tipo: ${escapeHtml(contrato.contrato || contrato.plano || contrato.id_vd_contrato || "-")}` : undefined,
+    `Status: ${escapeHtml(contrato.status || "-")}`,
+    contrato.status_internet ? `Internet: ${escapeHtml(contrato.status_internet)}` : undefined,
+    endereco ? `Endereço: ${escapeHtml(endereco)}` : undefined,
   ].filter(Boolean).join("\n");
 }
 

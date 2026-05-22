@@ -125,6 +125,21 @@ export interface IxcCliente {
   cidade: string;
 }
 
+export interface IxcContrato {
+  id: string;
+  id_cliente: string;
+  contrato?: string;
+  status?: string;
+  status_internet?: string;
+  endereco?: string;
+  numero?: string;
+  bairro?: string;
+  cidade?: string;
+  id_vd_contrato?: string;
+  plano?: string;
+  obs?: string;
+}
+
 export interface IxcFatura {
   id: string;
   id_cliente: string;
@@ -301,6 +316,19 @@ export const ixcApi = {
     }
 
     return { total: items.length, items };
+  },
+
+  // Lista contratos do cliente no IXC. Consulta interna somente; não envia dados para cliente automaticamente.
+  async getContratosCliente(idCliente: string): Promise<{ total: number; items: IxcContrato[]; unavailable?: boolean }> {
+    const data = await ixcRequest<IxcListResponse<IxcContrato>>(
+      "cliente_contrato",
+      { qtype: "cliente_contrato.id_cliente", query: idCliente, oper: "=", page: "1", rp: "20", sortname: "cliente_contrato.id", sortorder: "desc" }
+    );
+
+    if (!data) return { total: 0, items: [], unavailable: true };
+
+    const items = normalizeRegistros(data.registros);
+    return { total: parseInt(String(data.total || items.length || "0"), 10), items };
   },
 
   // Lista contas a receber/faturas abertas do cliente. Por segurança, não baixa PDF nem envia para cliente.
