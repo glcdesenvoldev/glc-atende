@@ -293,6 +293,54 @@ async function handleMenuCallback(context: AuditContext, value: string) {
     await replyAprovacoesFinanceiras(context);
     return;
   }
+  if (value === "cliente") {
+    await sendTelegramMessage(
+      context.chatId,
+      [
+        "🔎 Consulta de cliente",
+        "",
+        "Use um destes formatos:",
+        "<code>/c ID_CLIENTE</code>",
+        "<code>/c telefone com DDD</code>",
+        "<code>/c parte do nome</code>",
+        "",
+        "Exemplos:",
+        "<code>/c 179</code>",
+        "<code>/c 11999999999</code>",
+        "<code>/c maria</code>",
+        "",
+        "No privado, também pode enviar direto o ID, telefone ou nome.",
+      ].join("\n"),
+      buildMenuBackKeyboard()
+    );
+    return;
+  }
+  if (value === "fatura") {
+    await sendTelegramMessage(
+      context.chatId,
+      [
+        "🧾 Fatura segura",
+        "",
+        "Use:",
+        "<code>/fs ID_CLIENTE</code>",
+        "",
+        "Exemplo:",
+        "<code>/fs 179</code>",
+        "",
+        "Regra de segurança:",
+        "• só libera ações se existir exatamente 1 fatura aberta;",
+        "• múltiplas faturas bloqueiam automação;",
+        "• não envia WhatsApp automaticamente;",
+        "• exige conferência humana antes de enviar ao cliente.",
+      ].join("\n"),
+      buildMenuBackKeyboard()
+    );
+    return;
+  }
+  if (value === "back") {
+    await replyMenuPrincipal(context);
+    return;
+  }
   if (value === "help") {
     await sendTelegramMessage(context.chatId, helpText());
     return;
@@ -310,8 +358,17 @@ function buildMenuPrincipalKeyboard(): ReplyMarkup {
       { text: "💰 Resumo financeiro", callback_data: "menu:financeiro" },
       { text: "📌 Aprovações", callback_data: "menu:aprovacoes" },
     ], [
+      { text: "🔎 Cliente", callback_data: "menu:cliente" },
+      { text: "🧾 Fatura segura", callback_data: "menu:fatura" },
+    ], [
       { text: "❓ Ajuda", callback_data: "menu:help" },
     ]],
+  };
+}
+
+function buildMenuBackKeyboard(): ReplyMarkup {
+  return {
+    inline_keyboard: [[{ text: "⬅️ Voltar ao menu", callback_data: "menu:back" }]],
   };
 }
 
