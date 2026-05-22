@@ -4,6 +4,7 @@ import QRCode from "qrcode";
 import { createFinanceApproval, decideFinanceApproval, listFinanceApprovals, markFinanceApprovalManualSent } from "@/lib/finance-approvals";
 import { digitsOnly, isCnpj, isCpf, sanitizeForAudit } from "@/lib/lgpd";
 import { ixcApi, type IxcChamado, type IxcCliente, type IxcFatura } from "@/lib/ixc";
+import { runRetentionCleanup } from "@/lib/retention";
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
 
@@ -241,6 +242,10 @@ async function handleCommand(context: AuditContext, text: string) {
       await replyResumoFinanceiro(context);
       return;
 
+    case "/lgpd_limpeza":
+      await replyLgpdLimpeza(context);
+      return;
+
     case "/pix":
     case "/boleto":
       await auditLog(context, { action: command.slice(1), status: "blocked" });
@@ -254,6 +259,21 @@ async function handleCommand(context: AuditContext, text: string) {
       await auditLog(context, { action: "unknown_command", status: "ignored", command });
       await sendTelegramMessage(context.chatId, `Comando não reconhecido.\n\n${helpText()}`);
   }
+}
+
+async function replyLgpdLimpeza(context: AuditContext) {
+  const results = await runRetentionCleanup();
+  const lines = results.map((result) => [
+    `${result.skipped ? "⚪" : "✅"} ${result.label}`,
+    `Retenção: ${result.retentionDays} dias`,
+    result.skipped ? `Status: ignorado (${result.reason || "sem motivo"})` : `Mantidos: ${result.kept} · Removidos: ${result.removed}`,
+  ].join("\n"));
+
+  await auditLog(context, { action: "retention_cleanup_telegram", status: "success" });
+  await sendTelegramMessage(
+    context.chatId,
+    ["🧹 Limpeza LGPD/auditoria executada", "", ...lines].join("\n\n")
+  );
 }
 
 async function replyMenuPrincipal(context: AuditContext) {
@@ -1078,6 +1098,7 @@ function helpText() {
     "🤖 GLC Atende — comandos internos",
     "",
     "/menu — abre botões principais do GLC Atende",
+    "/lgpd_limpeza — executa retenção/limpeza dos logs de auditoria",
     "/status_glc ou /sg — resumo operacional: chamados + financeiro interno",
     "/chamados ou /abertos — lista chamados abertos",
     "/chamado ID — detalhe rápido de um chamado",
