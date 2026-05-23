@@ -502,6 +502,34 @@ async function replyStatusOperacional(context: AuditContext) {
 }
 
 async function replyResumoDia(context: AuditContext) {
+  const summary = await buildResumoDiaPayload();
+
+  await auditLog(context, {
+    action: "daily_summary",
+    status: summary.chamadosUnavailable ? "partial" : "success",
+    chamadosTotal: summary.chamadosTotal,
+    pendingApprovals: summary.pendingApprovals,
+    approvedOpen: summary.approvedOpen,
+    witEnabled: summary.witEnabled,
+  });
+
+  await sendTelegramMessage(context.chatId, summary.text, summary.replyMarkup);
+}
+
+export async function sendTelegramDailySummary(chatId: string | number) {
+  const summary = await buildResumoDiaPayload();
+  await sendTelegramMessage(chatId, summary.text, summary.replyMarkup);
+  return {
+    ok: true,
+    chamadosUnavailable: summary.chamadosUnavailable,
+    chamadosTotal: summary.chamadosTotal,
+    pendingApprovals: summary.pendingApprovals,
+    approvedOpen: summary.approvedOpen,
+    witEnabled: summary.witEnabled,
+  };
+}
+
+async function buildResumoDiaPayload() {
   const [chamadosResult, approvals] = await Promise.all([
     ixcApi.getChamados(10, "A").catch(() => ({ total: 0, items: [], unavailable: true })),
     listFinanceApprovals(),
@@ -520,18 +548,8 @@ async function replyResumoDia(context: AuditContext) {
   const witEnabled = process.env.WIT_MONITOR_ENABLED === "1";
   const topChamados = chamados.slice(0, 5).map((chamado) => `• #${escapeHtml(chamado.id)} — ${escapeHtml(truncate(chamado.assunto || "Sem assunto", 80))}${chamado.nome_cliente ? ` (${escapeHtml(truncate(chamado.nome_cliente, 40))})` : ""}`);
 
-  await auditLog(context, {
-    action: "daily_summary",
-    status: chamadosUnavailable ? "partial" : "success",
-    chamadosTotal,
-    pendingApprovals: pendingApprovals.length,
-    approvedOpen: approvedOpen.length,
-    witEnabled,
-  });
-
-  await sendTelegramMessage(
-    context.chatId,
-    [
+  return {
+    text: [
       "🗓️ Resumo do dia — GLC Atende",
       "",
       "📋 Atendimento IXC",
@@ -555,8 +573,13 @@ async function replyResumoDia(context: AuditContext) {
           ? "1) Atacar os primeiros chamados abertos e atualizar o IXC."
           : "1) Sem pendência crítica no resumo automático; manter acompanhamento normal.",
     ].filter((line): line is string => line !== undefined).join("\n"),
-    buildResumoDiaKeyboard()
-  );
+    replyMarkup: buildResumoDiaKeyboard(),
+    chamadosUnavailable,
+    chamadosTotal,
+    pendingApprovals: pendingApprovals.length,
+    approvedOpen: approvedOpen.length,
+    witEnabled,
+  };
 }
 
 function buildResumoDiaKeyboard(): ReplyMarkup {
