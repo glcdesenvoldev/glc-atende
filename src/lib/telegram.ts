@@ -47,6 +47,14 @@ type AuditContext = {
   messageId?: number;
 };
 
+type TelegramPermission = "menu" | "status" | "cliente" | "contratos" | "chamados" | "financeiro" | "aprovacoes" | "admin";
+
+type AttendantProfile = {
+  userId: string;
+  department: string;
+  permissions: string[];
+};
+
 export function getTelegramConfig() {
   const allowedUsers = parseCsvIds(process.env.TELEGRAM_ALLOWED_USERS);
   const allowedGroups = parseCsvIds(process.env.TELEGRAM_ALLOWED_GROUPS || process.env.TELEGRAM_GROUP_ID);
@@ -107,6 +115,8 @@ export async function handleTelegramUpdate(update: TelegramUpdate) {
 
 async function handleCallback(context: AuditContext, data: string) {
   const [action, value, extra] = data.split(":");
+  const permission = getCallbackPermission(action, value);
+  if (permission && !(await ensureTelegramPermission(context, permission, `botão ${action}`))) return;
 
   if (action === "menu" && value) {
     await handleMenuCallback(context, value);
@@ -167,12 +177,14 @@ async function handleCommand(context: AuditContext, text: string) {
 
   if (!rawCommand.startsWith("/")) {
     if (context.chatType === "private") {
+      if (!(await ensureTelegramPermission(context, "cliente", "consulta direta de cliente"))) return;
       await replyCliente(context, text, "cliente_direct_private");
       return;
     }
 
     const mentionQuery = extractBotMentionQuery(text);
     if (mentionQuery) {
+      if (!(await ensureTelegramPermission(context, "cliente", "consulta de cliente por menção"))) return;
       await replyCliente(context, mentionQuery, "cliente_mention_group");
     }
     return;
@@ -180,6 +192,8 @@ async function handleCommand(context: AuditContext, text: string) {
 
   const command = rawCommand.toLowerCase().split("@")[0];
   const arg = rest.join(" ").trim();
+  const permission = getCommandPermission(command);
+  if (permission && !(await ensureTelegramPermission(context, permission, command))) return;
 
   switch (command) {
     case "/start":
@@ -260,6 +274,11 @@ async function handleCommand(context: AuditContext, text: string) {
       await replyLgpdLimpeza(context);
       return;
 
+    case "/permissoes":
+    case "/perfil":
+      await replyPerfilAcesso(context);
+      return;
+
     case "/pix":
     case "/boleto":
       await auditLog(context, { action: command.slice(1), status: "blocked" });
@@ -273,6 +292,20 @@ async function handleCommand(context: AuditContext, text: string) {
       await auditLog(context, { action: "unknown_command", status: "ignored", command });
       await sendTelegramMessage(context.chatId, `Comando não reconhecido.\n\n${helpText()}`);
   }
+}
+
+async function replyPerfilAcesso(context: AuditContext) {
+  const profile = getAttendantProfile(context.userId);
+  await auditLog(context, { action: "access_profile", status: "success", department: profile.department, permissions: profile.permissions });
+  await sendTelegramMessage(
+    context.chatId,
+    [
+      "🔐 Perfil de acesso — GLC Atende",
+      "",
+      `Departamento: ${escapeHtml(profile.department)}`,
+      `Permissões: ${escapeHtml(profile.permissions.includes("*") ? "todas" : profile.permissions.join(", "))}`,
+    ].join("\n")
+  );
 }
 
 async function replyLgpdLimpeza(context: AuditContext) {
@@ -1070,6 +1103,92 @@ async function auditLog(context: AuditContext, event: Record<string, unknown>) {
   }
 }
 
+
+function getCommandPermission(command: string): TelegramPermission | null {
+  if (["/start", "/ajuda", "/help", "/menu", "/permissoes", "/perfil"].includes(command)) return "menu";
+  if (["/status_glc", "/sg"].includes(command)) return "status";
+  if (["/cliente", "/c"].includes(command)) return "cliente";
+  if (["/contratos", "/contrato"].includes(command)) return "contratos";
+  if (["/chamados", "/abertos", "/chamado"].includes(command)) return "chamados";
+  if (["/faturas", "/boletos", "/fatura_segura", "/fs", "/pix", "/boleto", "/resumo_financeiro", "/rf"].includes(command)) return "financeiro";
+  if (["/aprovacoes", "/ap"].includes(command)) return "aprovacoes";
+  if (["/lgpd_limpeza"].includes(command)) return "admin";
+  return null;
+}
+
+function getCallbackPermission(action: string, value?: string): TelegramPermission | null {
+  if (action === "menu") {
+    if (["status"].includes(value || "")) return "status";
+    if (["chamados"].includes(value || "")) return "chamados";
+    if (["financeiro", "fatura"].includes(value || "")) return "financeiro";
+    if (["aprovacoes"].includes(value || "")) return "aprovacoes";
+    if (["cliente"].includes(value || "")) return "cliente";
+    return "menu";
+  }
+  if (action === "cliente") return "cliente";
+  if (action === "contratos") return "contratos";
+  if (["faturas", "fatura_segura", "fatura_item", "approval_sent"].includes(action)) return "financeiro";
+  if (action === "aprovacoes_filter") return "aprovacoes";
+  if (action === "status_shortcut" && value === "chamados") return "chamados";
+  if (action === "status_shortcut" && value === "financeiro") return "financeiro";
+  return null;
+}
+
+async function ensureTelegramPermission(context: AuditContext, permission: TelegramPermission, action: string) {
+  if (hasTelegramPermission(context.userId, permission)) return true;
+  const profile = getAttendantProfile(context.userId);
+  await auditLog(context, { action: "permission_denied", status: "denied", command: action, requiredPermission: permission, department: profile.department });
+  await sendTelegramMessage(
+    context.chatId,
+    [
+      "⚠️ Permissão insuficiente para esta ação.",
+      "",
+      `Seu departamento/perfil: ${escapeHtml(profile.department)}`,
+      `Permissão necessária: ${escapeHtml(permission)}`,
+      "",
+      "Se isso estiver errado, peça ao supervisor para ajustar seu cadastro no GLC Atende.",
+    ].join("\n")
+  );
+  return false;
+}
+
+function hasTelegramPermission(userId: number, permission: TelegramPermission) {
+  const profile = getAttendantProfile(userId);
+  if (profile.permissions.includes("*") || profile.permissions.includes("all")) return true;
+  if (permission === "menu") return true;
+  if (permission === "aprovacoes" && profile.permissions.includes("financeiro")) return true;
+  if (permission === "contratos" && profile.permissions.includes("cliente")) return true;
+  return profile.permissions.includes(permission);
+}
+
+function getAttendantProfile(userId: number): AttendantProfile {
+  const userIdText = String(userId);
+  const configured = parseAttendantProfiles(process.env.TELEGRAM_ATTENDANTS);
+  const found = configured.find((profile) => profile.userId === userIdText);
+  if (found) return found;
+
+  if (userIdText === "6384458827") return { userId: userIdText, department: "supervisor", permissions: ["*"] };
+
+  const restrictedUsers = parseCsvIds(process.env.TELEGRAM_RESTRICTED_HOURS_USERS || "8705085560");
+  if (restrictedUsers.includes(userIdText)) {
+    return { userId: userIdText, department: "tecnico", permissions: ["menu", "status", "cliente", "contratos", "chamados"] };
+  }
+
+  return { userId: userIdText, department: "operador", permissions: ["menu", "status", "cliente", "contratos", "chamados"] };
+}
+
+function parseAttendantProfiles(value?: string): AttendantProfile[] {
+  return (value || "")
+    .split(";")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [userId, department = "operador", rawPermissions = "menu|status|cliente"] = entry.split(":").map((part) => part.trim());
+      return { userId, department, permissions: rawPermissions.split("|").map((item) => item.trim()).filter(Boolean) };
+    })
+    .filter((profile) => profile.userId);
+}
+
 function getAccessDenialReason(userId: number, chatId: number, chatType: string) {
   const { allowedUsers, allowedGroups } = getTelegramConfig();
   const privateUsers = parseCsvIds(process.env.TELEGRAM_PRIVATE_USERS || "6384458827");
@@ -1192,6 +1311,7 @@ function helpText() {
     "/faturas ID_CLIENTE — lista faturas abertas/localizadas",
     "/fatura_segura ID_CLIENTE ou /fs ID_CLIENTE — só retorna se existir exatamente 1 fatura aberta",
     "/resumo_financeiro ou /rf — resumo rápido das aprovações financeiras",
+    "/permissoes ou /perfil — mostra seu perfil de acesso no bot",
     "/aprovacoes ou /ap — lista últimas aprovações/envios manuais financeiros",
     "/aprovacoes pendentes|aprovadas|enviadas|rejeitadas — filtra por status",
     "/aprovacoes ID_CLIENTE|ID_FATURA|PROTOCOLO — filtra aprovações",
