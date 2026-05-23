@@ -95,6 +95,7 @@ export default function FinanceiroPage() {
 
   const cleanIds = useMemo(() => ids.split(/[\s,;]+/).map((id) => id.trim()).filter(Boolean), [ids]);
   const approvalCounts = useMemo(() => countApprovals(aprovacoes), [aprovacoes]);
+  const approvalSummary = useMemo(() => buildApprovalSummary(aprovacoes), [aprovacoes]);
   const filteredApprovals = useMemo(() => filterApprovals(aprovacoes, approvalFilter, approvalSearch), [aprovacoes, approvalFilter, approvalSearch]);
 
   useEffect(() => {
@@ -285,6 +286,7 @@ export default function FinanceiroPage() {
           <h2 className="text-lg font-semibold">Solicitações internas de envio</h2>
           <p className="text-xs text-[#94A3B8] mt-1">Aprovação apenas interna nesta fase. O sistema ainda não envia WhatsApp para cliente.</p>
         </div>
+        {aprovacoes.length > 0 ? <ApprovalSummaryCards summary={approvalSummary} /> : null}
         {approvalMsg ? <div className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-3 text-sm text-amber-200">{approvalMsg}</div> : null}
         {aprovacoes.length > 0 ? (
           <div className="space-y-3">
@@ -368,6 +370,57 @@ export default function FinanceiroPage() {
 
 
 
+
+
+function buildApprovalSummary(aprovacoes: AprovacaoEnvio[]) {
+  const totalManualSent = aprovacoes
+    .filter((aprovacao) => aprovacao.status === "manual_sent")
+    .reduce((sum, aprovacao) => sum + parseMoneyValue(aprovacao.valor), 0);
+
+  const totalApprovedOpen = aprovacoes
+    .filter((aprovacao) => aprovacao.status === "approved")
+    .reduce((sum, aprovacao) => sum + parseMoneyValue(aprovacao.valor), 0);
+
+  const lastUpdate = aprovacoes
+    .map((aprovacao) => aprovacao.updatedAt || aprovacao.createdAt)
+    .sort()
+    .at(-1) || "";
+
+  return { totalManualSent, totalApprovedOpen, lastUpdate };
+}
+
+function parseMoneyValue(value: string) {
+  const normalized = String(value || "0")
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\.(?=\d{3}(\D|$))/g, "")
+    .replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function ApprovalSummaryCards({ summary }: { summary: ReturnType<typeof buildApprovalSummary> }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+        <p className="text-xs text-emerald-200">Valor marcado como enviado manualmente</p>
+        <p className="mt-2 text-2xl font-bold text-emerald-100">R$ {formatMoneyNumber(summary.totalManualSent)}</p>
+      </div>
+      <div className="rounded-2xl border border-sky-500/20 bg-sky-500/10 p-4">
+        <p className="text-xs text-sky-200">Valor aprovado aguardando envio manual</p>
+        <p className="mt-2 text-2xl font-bold text-sky-100">R$ {formatMoneyNumber(summary.totalApprovedOpen)}</p>
+      </div>
+      <div className="rounded-2xl border border-[#2A4060] bg-[#0F2744] p-4">
+        <p className="text-xs text-[#94A3B8]">Última movimentação financeira interna</p>
+        <p className="mt-2 text-lg font-bold text-white">{summary.lastUpdate ? formatDate(summary.lastUpdate) : "-"}</p>
+        <p className="mt-1 text-xs text-amber-200">Resumo interno. Não representa baixa no IXC.</p>
+      </div>
+    </div>
+  );
+}
+
+function formatMoneyNumber(value: number) {
+  return value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 function exportApprovalsCsv(aprovacoes: AprovacaoEnvio[]) {
   const rows = aprovacoes.map((aprovacao) => ({
