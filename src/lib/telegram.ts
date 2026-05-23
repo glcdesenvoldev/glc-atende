@@ -224,6 +224,11 @@ async function handleCommand(context: AuditContext, text: string) {
       await replyStatusOperacional(context);
       return;
 
+    case "/resumo_dia":
+    case "/rd":
+      await replyResumoDia(context);
+      return;
+
     case "/cliente":
     case "/c":
       if (!arg) {
@@ -349,6 +354,10 @@ async function handleMenuCallback(context: AuditContext, value: string) {
     await replyStatusOperacional(context);
     return;
   }
+  if (value === "resumo_dia") {
+    await replyResumoDia(context);
+    return;
+  }
   if (value === "chamados") {
     await replyChamados(context);
     return;
@@ -423,8 +432,9 @@ function buildMenuPrincipalKeyboard(): ReplyMarkup {
   return {
     inline_keyboard: [[
       { text: "📊 Status GLC", callback_data: "menu:status" },
-      { text: "📋 Chamados", callback_data: "menu:chamados" },
+      { text: "🗓️ Resumo do dia", callback_data: "menu:resumo_dia" },
     ], [
+      { text: "📋 Chamados", callback_data: "menu:chamados" },
       { text: "💰 Resumo financeiro", callback_data: "menu:financeiro" },
       { text: "📌 Aprovações", callback_data: "menu:aprovacoes" },
     ], [
@@ -489,6 +499,76 @@ async function replyStatusOperacional(context: AuditContext) {
     ].filter(Boolean).join("\n"),
     buildStatusOperacionalKeyboard()
   );
+}
+
+async function replyResumoDia(context: AuditContext) {
+  const [chamadosResult, approvals] = await Promise.all([
+    ixcApi.getChamados(10, "A").catch(() => ({ total: 0, items: [], unavailable: true })),
+    listFinanceApprovals(),
+  ]);
+
+  const chamadosUnavailable = "unavailable" in chamadosResult && chamadosResult.unavailable;
+  const chamados = chamadosUnavailable ? [] : chamadosResult.items;
+  const chamadosTotal = chamadosUnavailable ? "IXC indisponível" : String(chamadosResult.total || chamados.length || 0);
+  const chamadosCriticos = chamados.filter((chamado) => {
+    const text = `${chamado.prioridade || ""} ${chamado.assunto || ""}`.toLowerCase();
+    return text.includes("alta") || text.includes("urgente") || text.includes("crit");
+  });
+
+  const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
+  const approvedOpen = approvals.filter((approval) => approval.status === "approved");
+  const witEnabled = process.env.WIT_MONITOR_ENABLED === "1";
+  const topChamados = chamados.slice(0, 5).map((chamado) => `• #${escapeHtml(chamado.id)} — ${escapeHtml(truncate(chamado.assunto || "Sem assunto", 80))}${chamado.nome_cliente ? ` (${escapeHtml(truncate(chamado.nome_cliente, 40))})` : ""}`);
+
+  await auditLog(context, {
+    action: "daily_summary",
+    status: chamadosUnavailable ? "partial" : "success",
+    chamadosTotal,
+    pendingApprovals: pendingApprovals.length,
+    approvedOpen: approvedOpen.length,
+    witEnabled,
+  });
+
+  await sendTelegramMessage(
+    context.chatId,
+    [
+      "🗓️ Resumo do dia — GLC Atende",
+      "",
+      "📋 Atendimento IXC",
+      `• Chamados abertos: ${escapeHtml(chamadosTotal)}`,
+      chamadosUnavailable ? "• ⚠️ IXC indisponível ou sem resposta agora." : `• Chamados críticos/alta prioridade: ${chamadosCriticos.length}`,
+      topChamados.length ? "" : undefined,
+      topChamados.length ? "Primeiros chamados:" : undefined,
+      ...topChamados,
+      "",
+      "💰 Financeiro seguro",
+      `• Aprovações pendentes: ${pendingApprovals.length}`,
+      `• Aprovadas aguardando marcar envio manual: ${approvedOpen.length}`,
+      "",
+      "🤖 Monitor WIT/Mundiale",
+      witEnabled ? "• Ativo — revisar conversas paradas no painel." : "• Desativado por segurança, conforme decisão atual.",
+      "",
+      "Próxima ação recomendada:",
+      pendingApprovals.length
+        ? "1) Resolver aprovações financeiras pendentes antes de qualquer envio ao cliente."
+        : chamados.length
+          ? "1) Atacar os primeiros chamados abertos e atualizar o IXC."
+          : "1) Sem pendência crítica no resumo automático; manter acompanhamento normal.",
+    ].filter((line): line is string => line !== undefined).join("\n"),
+    buildResumoDiaKeyboard()
+  );
+}
+
+function buildResumoDiaKeyboard(): ReplyMarkup {
+  return {
+    inline_keyboard: [[
+      { text: "📋 Ver chamados", callback_data: "status_shortcut:chamados" },
+      { text: "💰 Financeiro", callback_data: "status_shortcut:financeiro" },
+    ], [
+      { text: "⏳ Aprovações pendentes", callback_data: "aprovacoes_filter:pendentes" },
+      { text: "⬅️ Menu", callback_data: "menu:back" },
+    ]],
+  };
 }
 
 function buildStatusOperacionalKeyboard(): ReplyMarkup {
@@ -1106,7 +1186,7 @@ async function auditLog(context: AuditContext, event: Record<string, unknown>) {
 
 function getCommandPermission(command: string): TelegramPermission | null {
   if (["/start", "/ajuda", "/help", "/menu", "/permissoes", "/perfil"].includes(command)) return "menu";
-  if (["/status_glc", "/sg"].includes(command)) return "status";
+  if (["/status_glc", "/sg", "/resumo_dia", "/rd"].includes(command)) return "status";
   if (["/cliente", "/c"].includes(command)) return "cliente";
   if (["/contratos", "/contrato"].includes(command)) return "contratos";
   if (["/chamados", "/abertos", "/chamado"].includes(command)) return "chamados";
@@ -1118,7 +1198,7 @@ function getCommandPermission(command: string): TelegramPermission | null {
 
 function getCallbackPermission(action: string, value?: string): TelegramPermission | null {
   if (action === "menu") {
-    if (["status"].includes(value || "")) return "status";
+    if (["status", "resumo_dia"].includes(value || "")) return "status";
     if (["chamados"].includes(value || "")) return "chamados";
     if (["financeiro", "fatura"].includes(value || "")) return "financeiro";
     if (["aprovacoes"].includes(value || "")) return "aprovacoes";
@@ -1300,6 +1380,7 @@ function helpText() {
     "/menu — abre botões principais do GLC Atende",
     "/lgpd_limpeza — executa retenção/limpeza dos logs de auditoria",
     "/status_glc ou /sg — resumo operacional: chamados + financeiro interno",
+    "/resumo_dia ou /rd — checklist rápido do dia: IXC, financeiro e WIT",
     "/chamados ou /abertos — lista chamados abertos",
     "/chamado ID — detalhe rápido de um chamado",
     "/cliente ID|telefone|nome — consulta cliente",
