@@ -129,14 +129,22 @@ export interface IxcContrato {
   id: string;
   id_cliente: string;
   contrato?: string;
+  id_vd_contrato?: string;
+  plano?: string;
+  id_produto?: string;
+  produto?: string;
+  velocidade?: string;
   status?: string;
   status_internet?: string;
+  bloqueio_automatico?: string;
   endereco?: string;
+  endereco_padrao_cliente?: string;
   numero?: string;
   bairro?: string;
   cidade?: string;
-  id_vd_contrato?: string;
-  plano?: string;
+  cep?: string;
+  data_ativacao?: string;
+  data_cancelamento?: string;
   obs?: string;
 }
 

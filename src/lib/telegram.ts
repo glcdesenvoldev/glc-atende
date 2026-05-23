@@ -567,12 +567,20 @@ async function replyContratosCliente(context: AuditContext, idCliente: string, a
   const header = clienteDetalhe
     ? `📄 Contrato(s) do cliente ${escapeHtml(clienteDetalhe.id)} — ${escapeHtml(clienteDetalhe.razao || clienteDetalhe.fantasia || "-")}`
     : `📄 Contrato(s) do cliente ${escapeHtml(cleanId)}`;
-  const lines = contratos.items.slice(0, 10).map(formatContrato);
+  const lines = contratos.items.slice(0, 10).map((contrato, index) => formatContrato(contrato, index));
+  const activeCount = contratos.items.filter(isContratoAtivo).length;
+  const inactiveCount = contratos.items.length - activeCount;
+  const summary = `Resumo: ${activeCount} ativo(s)${inactiveCount > 0 ? ` · ${inactiveCount} inativo(s)/outro status` : ""}`;
+  const keyboard: ReplyMarkup = { inline_keyboard: [[
+    { text: "Ver faturas", callback_data: `faturas:${cleanId}` },
+    { text: "Fatura segura", callback_data: `fatura_segura:${cleanId}` },
+  ]] };
 
   await auditLog(context, { action, status: "success", clientId: cleanId, resultCount: contratos.items.length, contratoIds: contratos.items.slice(0, 10).map((item) => item.id) });
   await sendTelegramMessage(
     context.chatId,
-    `${header}\n\n${lines.join("\n\n")}\n\nLGPD: consulta interna. Confira no IXC antes de repassar dados ao cliente.`
+    `${header}\n${summary}\n\n${lines.join("\n\n")}\n\nLGPD: consulta interna. Confira no IXC antes de repassar dados ao cliente.`,
+    keyboard
   );
 }
 
@@ -1228,15 +1236,56 @@ function formatCliente(cliente: IxcCliente) {
   ].filter(Boolean).join("\n");
 }
 
-function formatContrato(contrato: IxcContrato) {
-  const endereco = [contrato.endereco, contrato.numero, contrato.bairro, contrato.cidade].filter(Boolean).join(", ");
+function formatContrato(contrato: IxcContrato, index = 0) {
+  const endereco = [contrato.endereco || contrato.endereco_padrao_cliente, contrato.numero, contrato.bairro, contrato.cidade].filter(Boolean).join(", ");
+  const plano = contrato.plano || contrato.produto || contrato.contrato || contrato.id_vd_contrato || contrato.id_produto;
+  const status = formatContratoStatus(contrato.status);
+  const internet = formatInternetStatus(contrato.status_internet);
+
   return [
-    `Contrato: ${escapeHtml(contrato.id || "-")}`,
-    contrato.contrato || contrato.id_vd_contrato || contrato.plano ? `Plano/Tipo: ${escapeHtml(contrato.contrato || contrato.plano || contrato.id_vd_contrato || "-")}` : undefined,
-    `Status: ${escapeHtml(contrato.status || "-")}`,
-    contrato.status_internet ? `Internet: ${escapeHtml(contrato.status_internet)}` : undefined,
-    endereco ? `Endereço: ${escapeHtml(endereco)}` : undefined,
+    `${isContratoAtivo(contrato) ? "✅" : "⚠️"} Contrato ${index + 1}: ${escapeHtml(contrato.id || "-")}`,
+    plano ? `Plano/Tipo: ${escapeHtml(plano)}` : undefined,
+    `Status contrato: ${escapeHtml(status)}`,
+    internet ? `Status internet: ${escapeHtml(internet)}` : undefined,
+    contrato.bloqueio_automatico ? `Bloqueio auto: ${escapeHtml(formatYesNo(contrato.bloqueio_automatico))}` : undefined,
+    contrato.data_ativacao ? `Ativação: ${escapeHtml(contrato.data_ativacao)}` : undefined,
+    contrato.data_cancelamento ? `Cancelamento: ${escapeHtml(contrato.data_cancelamento)}` : undefined,
+    endereco ? `Instalação: ${escapeHtml(endereco)}` : undefined,
   ].filter(Boolean).join("\n");
+}
+
+function isContratoAtivo(contrato: IxcContrato) {
+  const status = String(contrato.status || "").trim().toUpperCase();
+  const internet = String(contrato.status_internet || "").trim().toUpperCase();
+  return ["A", "ATIVO", "ATIVA"].includes(status) || ["A", "ATIVO", "ATIVA", "AA"].includes(internet);
+}
+
+function formatContratoStatus(value?: string) {
+  const clean = String(value || "").trim();
+  const upper = clean.toUpperCase();
+  if (["A", "ATIVO", "ATIVA"].includes(upper)) return "✅ Ativo";
+  if (["I", "INATIVO", "INATIVA"].includes(upper)) return "⚠️ Inativo";
+  if (["P", "PRE", "PRÉ", "PRE_CONTRATO", "PRÉ-CONTRATO"].includes(upper)) return "🟡 Pré-contrato";
+  if (["D", "DESATIVADO", "DESATIVADA"].includes(upper)) return "⚠️ Desativado";
+  if (["C", "CANCELADO", "CANCELADA"].includes(upper)) return "🔴 Cancelado";
+  return clean || "-";
+}
+
+function formatInternetStatus(value?: string) {
+  const clean = String(value || "").trim();
+  const upper = clean.toUpperCase();
+  if (["A", "ATIVO", "ATIVA", "AA"].includes(upper)) return "✅ Ativa";
+  if (["D", "DESATIVADO", "DESATIVADA"].includes(upper)) return "⚠️ Desativada";
+  if (["CM", "BLOQUEADO", "BLOQUEADA", "B"].includes(upper)) return "🟡 Bloqueada";
+  if (["CA", "CANCELADO", "CANCELADA"].includes(upper)) return "🔴 Cancelada";
+  return clean || "-";
+}
+
+function formatYesNo(value: string) {
+  const clean = value.trim().toUpperCase();
+  if (["S", "SIM", "YES", "TRUE", "1"].includes(clean)) return "Sim";
+  if (["N", "NAO", "NÃO", "NO", "FALSE", "0"].includes(clean)) return "Não";
+  return value;
 }
 
 function formatFaturaResumo(fatura: IxcFatura) {
