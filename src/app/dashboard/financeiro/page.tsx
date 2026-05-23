@@ -51,6 +51,9 @@ type AprovacaoEnvio = {
   hasLinhaDigitavel: boolean;
   hasPix: boolean;
   hasLink: boolean;
+  linhaDigitavel?: string;
+  pixCopiaCola?: string;
+  link?: string;
   createdAt: string;
   updatedAt: string;
   safetyMessage: string;
@@ -293,6 +296,9 @@ export default function FinanceiroPage() {
                     <button onClick={() => decidirAprovacao(aprovacao.id, "manual_sent")} className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold hover:bg-sky-500">Marcar enviado manualmente</button>
                   ) : null}
                 </div>
+                {aprovacao.status === "approved" || aprovacao.status === "manual_sent" ? (
+                  <CopyBlock label="Mensagem aprovada para envio manual" value={mensagemClienteAprovacao(aprovacao)} />
+                ) : null}
                 <p className="text-xs text-amber-200">{aprovacao.safetyMessage}</p>
               </div>
             ))}
@@ -384,7 +390,8 @@ function FaturaSegura({ idCliente, fatura, onApprovalCreated }: { idCliente: str
         </button>
         {message ? <span className="text-xs text-amber-200">{message}</span> : null}
       </div>
-      <p className="text-xs text-amber-200">Conferir no IXC antes de enviar ao cliente. Aprovação humana obrigatória.</p>
+      <CopyBlock label="Mensagem pronta para cliente — copiar manualmente somente após conferência" value={mensagemClienteFatura(fatura)} />
+      <p className="text-xs text-amber-200">Conferir no IXC antes de enviar ao cliente. Aprovação humana obrigatória. O sistema apenas prepara o texto; não envia automaticamente.</p>
     </div>
   );
 }
@@ -417,9 +424,50 @@ function CopyBlock({ label, value }: { label: string; value: string }) {
           <Copy className="w-3 h-3" /> Copiar
         </button>
       </div>
-      <p className="text-xs text-white break-all">{value}</p>
+      <p className="text-xs text-white break-all whitespace-pre-wrap">{value}</p>
     </div>
   );
+}
+
+
+function mensagemClienteFatura(fatura: FaturaDetalhe) {
+  return buildMensagemCliente({
+    faturaId: fatura.id,
+    valor: fatura.valor,
+    dataVencimento: fatura.data_vencimento,
+    linhaDigitavel: fatura.linha_digitavel,
+    pixCopiaCola: fatura.pix_copia_cola,
+    link: fatura.link,
+  });
+}
+
+function mensagemClienteAprovacao(aprovacao: AprovacaoEnvio) {
+  return buildMensagemCliente({
+    faturaId: aprovacao.faturaId,
+    valor: aprovacao.valor,
+    dataVencimento: aprovacao.dataVencimento,
+    linhaDigitavel: aprovacao.linhaDigitavel || "",
+    pixCopiaCola: aprovacao.pixCopiaCola || "",
+    link: aprovacao.link || "",
+  });
+}
+
+function buildMensagemCliente(input: { faturaId: string; valor: string; dataVencimento: string; linhaDigitavel?: string; pixCopiaCola?: string; link?: string }) {
+  return [
+    "Olá! Segue a segunda via da sua fatura da GLC Internet.",
+    "",
+    `Fatura: ${input.faturaId || "-"}`,
+    `Valor: ${money(input.valor)}`,
+    `Vencimento: ${input.dataVencimento || "-"}`,
+    input.linhaDigitavel ? "" : undefined,
+    input.linhaDigitavel ? `Código do boleto:\n${input.linhaDigitavel}` : undefined,
+    input.pixCopiaCola ? "" : undefined,
+    input.pixCopiaCola ? `PIX copia e cola:\n${input.pixCopiaCola}` : undefined,
+    input.link ? "" : undefined,
+    input.link ? `Link/PDF:\n${input.link}` : undefined,
+    "",
+    "Antes de pagar, confira se os dados estão em nome da GLC Internet.",
+  ].filter((line): line is string => line !== undefined).join("\n");
 }
 
 function money(value: string) {
