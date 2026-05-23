@@ -327,6 +327,7 @@ export default function FinanceiroPage() {
                   <div>
                     <p className="font-semibold">Cliente #{aprovacao.idCliente} • Fatura #{aprovacao.faturaId} • R$ {aprovacao.valor || "-"}</p>
                     <p className="text-xs text-[#94A3B8]">Status: {statusAprovacao(aprovacao.status)} • Criada em {formatDate(aprovacao.createdAt)}</p>
+                    <DueBadge dueDate={aprovacao.dataVencimento} />
                     <p className="text-xs text-[#94A3B8]">Criado por: {aprovacao.createdBy || "dashboard"}{aprovacao.decidedBy ? ` • Última decisão: ${aprovacao.decidedBy}` : ""}</p>
                   </div>
                   {aprovacao.status === "pending" ? (
@@ -586,6 +587,10 @@ function FaturaSegura({ idCliente, fatura, onApprovalCreated }: { idCliente: str
         <Info label="Fatura" value={fatura.id} />
         <Info label="Valor aberto" value={money(fatura.valor)} />
         <Info label="Vencimento" value={fatura.data_vencimento || "-"} />
+        <div>
+          <p className="text-[#94A3B8]">Urgência</p>
+          <DueBadge dueDate={fatura.data_vencimento} />
+        </div>
         <Info label="Status" value={fatura.status || "-"} />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
@@ -618,9 +623,52 @@ function FaturaResumoView({ fatura }: { fatura: FaturaResumo }) {
       <Info label="Fatura" value={fatura.id} />
       <Info label="Valor" value={money(fatura.valor)} />
       <Info label="Vencimento" value={fatura.data_vencimento || "-"} />
+      <div>
+        <p className="text-[#94A3B8]">Urgência</p>
+        <DueBadge dueDate={fatura.data_vencimento} />
+      </div>
       <Info label="Status" value={fatura.status || "-"} />
     </div>
   );
+}
+
+
+function DueBadge({ dueDate }: { dueDate: string }) {
+  const urgency = getDueUrgency(dueDate);
+  return (
+    <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${urgency.cls}`}>
+      {urgency.label}
+    </span>
+  );
+}
+
+function getDueUrgency(value: string) {
+  const due = parseDueDate(value);
+  if (!due) return { label: "Vencimento não informado", cls: "border-[#2A4060] bg-[#0F2744] text-[#94A3B8]" };
+
+  const today = new Date();
+  const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const diffDays = Math.round((due.getTime() - startToday.getTime()) / 86400000);
+
+  if (diffDays < 0) return { label: `Vencida há ${Math.abs(diffDays)} dia(s)`, cls: "border-rose-500/30 bg-rose-500/10 text-rose-200" };
+  if (diffDays === 0) return { label: "Vence hoje", cls: "border-orange-500/30 bg-orange-500/10 text-orange-200" };
+  if (diffDays <= 3) return { label: `Vence em ${diffDays} dia(s)`, cls: "border-amber-500/30 bg-amber-500/10 text-amber-200" };
+  return { label: `Vence em ${diffDays} dia(s)`, cls: "border-emerald-500/20 bg-emerald-500/10 text-emerald-200" };
+}
+
+function parseDueDate(value: string) {
+  const clean = String(value || "").trim();
+  if (!clean) return null;
+
+  const br = clean.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (br) return new Date(Number(br[3]), Number(br[2]) - 1, Number(br[1]));
+
+  const iso = clean.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+
+  const parsed = new Date(clean);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
 }
 
 function Info({ label, value }: { label: string; value: string }) {
