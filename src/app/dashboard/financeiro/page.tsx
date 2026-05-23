@@ -306,6 +306,11 @@ export default function FinanceiroPage() {
                 <button onClick={() => setApprovalSearch("")} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white">Limpar busca</button>
               ) : null}
             </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => exportApprovalsCsv(filteredApprovals)} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white">Exportar CSV filtrado</button>
+              <button onClick={() => exportApprovalsJson(filteredApprovals)} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white">Exportar JSON filtrado</button>
+              <span className="text-xs text-[#94A3B8]">Exporta somente registros visíveis no filtro/busca atual.</span>
+            </div>
           </div>
         ) : null}
         {aprovacoes.length === 0 ? (
@@ -362,6 +367,70 @@ export default function FinanceiroPage() {
 }
 
 
+
+
+function exportApprovalsCsv(aprovacoes: AprovacaoEnvio[]) {
+  const rows = aprovacoes.map((aprovacao) => ({
+    protocolo: aprovacao.id,
+    status: aprovacao.status,
+    cliente: aprovacao.idCliente,
+    fatura: aprovacao.faturaId,
+    valor: aprovacao.valor,
+    vencimento: aprovacao.dataVencimento,
+    criado_em: aprovacao.createdAt,
+    atualizado_em: aprovacao.updatedAt,
+    criado_por: aprovacao.createdBy || "",
+    decidido_por: aprovacao.decidedBy || "",
+    observacao: aprovacao.note || "",
+    tem_linha_digitavel: aprovacao.hasLinhaDigitavel ? "sim" : "nao",
+    tem_pix: aprovacao.hasPix ? "sim" : "nao",
+    tem_link: aprovacao.hasLink ? "sim" : "nao",
+  }));
+  const headers = Object.keys(rows[0] || { protocolo: "", status: "", cliente: "", fatura: "", valor: "", vencimento: "", criado_em: "", atualizado_em: "", criado_por: "", decidido_por: "", observacao: "", tem_linha_digitavel: "", tem_pix: "", tem_link: "" });
+  const csv = [headers.join(","), ...rows.map((row) => headers.map((header) => csvCell(row[header as keyof typeof row])).join(","))].join("\n");
+  downloadTextFile(`glc-aprovacoes-${dateStamp()}.csv`, csv, "text/csv;charset=utf-8");
+}
+
+function exportApprovalsJson(aprovacoes: AprovacaoEnvio[]) {
+  const safe = aprovacoes.map((aprovacao) => ({
+    id: aprovacao.id,
+    status: aprovacao.status,
+    idCliente: aprovacao.idCliente,
+    faturaId: aprovacao.faturaId,
+    valor: aprovacao.valor,
+    dataVencimento: aprovacao.dataVencimento,
+    hasLinhaDigitavel: aprovacao.hasLinhaDigitavel,
+    hasPix: aprovacao.hasPix,
+    hasLink: aprovacao.hasLink,
+    createdAt: aprovacao.createdAt,
+    updatedAt: aprovacao.updatedAt,
+    createdBy: aprovacao.createdBy,
+    decidedBy: aprovacao.decidedBy || "",
+    note: aprovacao.note || "",
+    safetyMessage: aprovacao.safetyMessage,
+  }));
+  downloadTextFile(`glc-aprovacoes-${dateStamp()}.json`, JSON.stringify({ exportedAt: new Date().toISOString(), total: safe.length, items: safe }, null, 2), "application/json;charset=utf-8");
+}
+
+function csvCell(value: unknown) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
+
+function dateStamp() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function downloadTextFile(filename: string, content: string, type: string) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
 function filterApprovals(aprovacoes: AprovacaoEnvio[], status: "all" | AprovacaoEnvio["status"], search: string) {
   const clean = search.trim().toLowerCase();
