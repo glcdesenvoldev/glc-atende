@@ -90,8 +90,11 @@ export default function FinanceiroPage() {
   const [aprovacoes, setAprovacoes] = useState<AprovacaoEnvio[]>([]);
   const [approvalMsg, setApprovalMsg] = useState("");
   const [approvalNotes, setApprovalNotes] = useState<Record<string, string>>({});
+  const [approvalFilter, setApprovalFilter] = useState<"all" | AprovacaoEnvio["status"]>("all");
 
   const cleanIds = useMemo(() => ids.split(/[\s,;]+/).map((id) => id.trim()).filter(Boolean), [ids]);
+  const approvalCounts = useMemo(() => countApprovals(aprovacoes), [aprovacoes]);
+  const filteredApprovals = useMemo(() => (approvalFilter === "all" ? aprovacoes : aprovacoes.filter((aprovacao) => aprovacao.status === approvalFilter)), [aprovacoes, approvalFilter]);
 
   useEffect(() => {
     carregarAprovacoes();
@@ -282,11 +285,22 @@ export default function FinanceiroPage() {
           <p className="text-xs text-[#94A3B8] mt-1">Aprovação apenas interna nesta fase. O sistema ainda não envia WhatsApp para cliente.</p>
         </div>
         {approvalMsg ? <div className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-3 text-sm text-amber-200">{approvalMsg}</div> : null}
+        {aprovacoes.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            <ApprovalFilterButton active={approvalFilter === "all"} onClick={() => setApprovalFilter("all")} label="Todas" count={aprovacoes.length} />
+            <ApprovalFilterButton active={approvalFilter === "pending"} onClick={() => setApprovalFilter("pending")} label="Pendentes" count={approvalCounts.pending} />
+            <ApprovalFilterButton active={approvalFilter === "approved"} onClick={() => setApprovalFilter("approved")} label="Aprovadas" count={approvalCounts.approved} />
+            <ApprovalFilterButton active={approvalFilter === "manual_sent"} onClick={() => setApprovalFilter("manual_sent")} label="Enviadas manualmente" count={approvalCounts.manual_sent} />
+            <ApprovalFilterButton active={approvalFilter === "rejected"} onClick={() => setApprovalFilter("rejected")} label="Rejeitadas" count={approvalCounts.rejected} />
+          </div>
+        ) : null}
         {aprovacoes.length === 0 ? (
           <p className="text-sm text-[#94A3B8]">Nenhuma solicitação registrada ainda.</p>
+        ) : filteredApprovals.length === 0 ? (
+          <p className="text-sm text-[#94A3B8]">Nenhuma solicitação neste filtro.</p>
         ) : (
           <div className="space-y-2">
-            {aprovacoes.slice(0, 10).map((aprovacao) => (
+            {filteredApprovals.slice(0, 10).map((aprovacao) => (
               <div key={aprovacao.id} className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-3 text-sm space-y-2">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
                   <div>
@@ -330,6 +344,25 @@ export default function FinanceiroPage() {
       </section>
 
     </div>
+  );
+}
+
+
+function countApprovals(aprovacoes: AprovacaoEnvio[]) {
+  return aprovacoes.reduce<Record<AprovacaoEnvio["status"], number>>((acc, aprovacao) => {
+    acc[aprovacao.status] += 1;
+    return acc;
+  }, { pending: 0, approved: 0, rejected: 0, manual_sent: 0 });
+}
+
+function ApprovalFilterButton({ active, onClick, label, count }: { active: boolean; onClick: () => void; label: string; count: number }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1 text-xs font-semibold ${active ? "border-[#14B8A6] bg-[#14B8A6]/20 text-[#5EEAD4]" : "border-[#2A4060] bg-[#0F2744] text-[#CBD5E1] hover:text-white"}`}
+    >
+      {label}: {count}
+    </button>
   );
 }
 
