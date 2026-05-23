@@ -56,6 +56,9 @@ type AprovacaoEnvio = {
   link?: string;
   createdAt: string;
   updatedAt: string;
+  createdBy: string;
+  decidedBy?: string;
+  note?: string;
   safetyMessage: string;
 };
 
@@ -86,6 +89,7 @@ export default function FinanceiroPage() {
   const [data, setData] = useState<FinanceiroResponse | null>(null);
   const [aprovacoes, setAprovacoes] = useState<AprovacaoEnvio[]>([]);
   const [approvalMsg, setApprovalMsg] = useState("");
+  const [approvalNotes, setApprovalNotes] = useState<Record<string, string>>({});
 
   const cleanIds = useMemo(() => ids.split(/[\s,;]+/).map((id) => id.trim()).filter(Boolean), [ids]);
 
@@ -102,10 +106,11 @@ export default function FinanceiroPage() {
 
   async function decidirAprovacao(id: string, action: "approve" | "reject" | "manual_sent") {
     setApprovalMsg("");
+    const note = approvalNotes[id] || "";
     const res = await fetch("/api/financeiro/aprovacoes", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, action }),
+      body: JSON.stringify({ id, action, note }),
     });
     const json = await res.json();
     if (!res.ok || !json.ok) {
@@ -113,6 +118,7 @@ export default function FinanceiroPage() {
       return;
     }
     setApprovalMsg(action === "manual_sent" ? "Envio manual registrado. Nenhuma mensagem foi enviada automaticamente." : "Status atualizado. Nenhuma mensagem foi enviada ao cliente.");
+    setApprovalNotes((current) => ({ ...current, [id]: "" }));
     await carregarAprovacoes();
   }
 
@@ -286,6 +292,7 @@ export default function FinanceiroPage() {
                   <div>
                     <p className="font-semibold">Cliente #{aprovacao.idCliente} • Fatura #{aprovacao.faturaId} • R$ {aprovacao.valor || "-"}</p>
                     <p className="text-xs text-[#94A3B8]">Status: {statusAprovacao(aprovacao.status)} • Criada em {formatDate(aprovacao.createdAt)}</p>
+                    <p className="text-xs text-[#94A3B8]">Criado por: {aprovacao.createdBy || "dashboard"}{aprovacao.decidedBy ? ` • Última decisão: ${aprovacao.decidedBy}` : ""}</p>
                   </div>
                   {aprovacao.status === "pending" ? (
                     <div className="flex gap-2">
@@ -296,6 +303,22 @@ export default function FinanceiroPage() {
                     <button onClick={() => decidirAprovacao(aprovacao.id, "manual_sent")} className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold hover:bg-sky-500">Marcar enviado manualmente</button>
                   ) : null}
                 </div>
+                {aprovacao.status === "pending" || aprovacao.status === "approved" ? (
+                  <label className="block text-xs text-[#CBD5E1] space-y-1">
+                    <span>Observação interna da decisão/envio manual</span>
+                    <textarea
+                      value={approvalNotes[aprovacao.id] || ""}
+                      onChange={(e) => setApprovalNotes((current) => ({ ...current, [aprovacao.id]: e.target.value }))}
+                      placeholder="Ex.: conferido no IXC, cliente pediu pelo WhatsApp, enviado manualmente às 14:20..."
+                      className="min-h-16 w-full rounded-lg bg-[#0D1B2A] border border-[#2A4060] px-3 py-2 text-xs text-white placeholder-[#94A3B8]/60 focus:outline-none focus:border-[#14B8A6]"
+                    />
+                  </label>
+                ) : null}
+                {aprovacao.note ? (
+                  <div className="rounded-lg bg-[#0D1B2A] border border-[#2A4060] p-2 text-xs text-[#CBD5E1]">
+                    <span className="text-[#94A3B8]">Observação registrada: </span>{aprovacao.note}
+                  </div>
+                ) : null}
                 {aprovacao.status === "approved" || aprovacao.status === "manual_sent" ? (
                   <CopyBlock label="Mensagem aprovada para envio manual" value={mensagemClienteAprovacao(aprovacao)} />
                 ) : null}
