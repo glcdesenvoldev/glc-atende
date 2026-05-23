@@ -91,10 +91,11 @@ export default function FinanceiroPage() {
   const [approvalMsg, setApprovalMsg] = useState("");
   const [approvalNotes, setApprovalNotes] = useState<Record<string, string>>({});
   const [approvalFilter, setApprovalFilter] = useState<"all" | AprovacaoEnvio["status"]>("all");
+  const [approvalSearch, setApprovalSearch] = useState("");
 
   const cleanIds = useMemo(() => ids.split(/[\s,;]+/).map((id) => id.trim()).filter(Boolean), [ids]);
   const approvalCounts = useMemo(() => countApprovals(aprovacoes), [aprovacoes]);
-  const filteredApprovals = useMemo(() => (approvalFilter === "all" ? aprovacoes : aprovacoes.filter((aprovacao) => aprovacao.status === approvalFilter)), [aprovacoes, approvalFilter]);
+  const filteredApprovals = useMemo(() => filterApprovals(aprovacoes, approvalFilter, approvalSearch), [aprovacoes, approvalFilter, approvalSearch]);
 
   useEffect(() => {
     carregarAprovacoes();
@@ -286,12 +287,25 @@ export default function FinanceiroPage() {
         </div>
         {approvalMsg ? <div className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-3 text-sm text-amber-200">{approvalMsg}</div> : null}
         {aprovacoes.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            <ApprovalFilterButton active={approvalFilter === "all"} onClick={() => setApprovalFilter("all")} label="Todas" count={aprovacoes.length} />
-            <ApprovalFilterButton active={approvalFilter === "pending"} onClick={() => setApprovalFilter("pending")} label="Pendentes" count={approvalCounts.pending} />
-            <ApprovalFilterButton active={approvalFilter === "approved"} onClick={() => setApprovalFilter("approved")} label="Aprovadas" count={approvalCounts.approved} />
-            <ApprovalFilterButton active={approvalFilter === "manual_sent"} onClick={() => setApprovalFilter("manual_sent")} label="Enviadas manualmente" count={approvalCounts.manual_sent} />
-            <ApprovalFilterButton active={approvalFilter === "rejected"} onClick={() => setApprovalFilter("rejected")} label="Rejeitadas" count={approvalCounts.rejected} />
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <ApprovalFilterButton active={approvalFilter === "all"} onClick={() => setApprovalFilter("all")} label="Todas" count={aprovacoes.length} />
+              <ApprovalFilterButton active={approvalFilter === "pending"} onClick={() => setApprovalFilter("pending")} label="Pendentes" count={approvalCounts.pending} />
+              <ApprovalFilterButton active={approvalFilter === "approved"} onClick={() => setApprovalFilter("approved")} label="Aprovadas" count={approvalCounts.approved} />
+              <ApprovalFilterButton active={approvalFilter === "manual_sent"} onClick={() => setApprovalFilter("manual_sent")} label="Enviadas manualmente" count={approvalCounts.manual_sent} />
+              <ApprovalFilterButton active={approvalFilter === "rejected"} onClick={() => setApprovalFilter("rejected")} label="Rejeitadas" count={approvalCounts.rejected} />
+            </div>
+            <div className="flex flex-col md:flex-row gap-2">
+              <input
+                value={approvalSearch}
+                onChange={(e) => setApprovalSearch(e.target.value)}
+                placeholder="Buscar por cliente, fatura, protocolo ou observação"
+                className="flex-1 rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-sm text-white placeholder-[#94A3B8]/60 focus:outline-none focus:border-[#14B8A6]"
+              />
+              {approvalSearch ? (
+                <button onClick={() => setApprovalSearch("")} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white">Limpar busca</button>
+              ) : null}
+            </div>
           </div>
         ) : null}
         {aprovacoes.length === 0 ? (
@@ -347,6 +361,30 @@ export default function FinanceiroPage() {
   );
 }
 
+
+
+function filterApprovals(aprovacoes: AprovacaoEnvio[], status: "all" | AprovacaoEnvio["status"], search: string) {
+  const clean = search.trim().toLowerCase();
+  return aprovacoes.filter((aprovacao) => {
+    if (status !== "all" && aprovacao.status !== status) return false;
+    if (!clean) return true;
+
+    const haystack = [
+      aprovacao.id,
+      aprovacao.id.slice(0, 8),
+      aprovacao.idCliente,
+      aprovacao.faturaId,
+      aprovacao.valor,
+      aprovacao.dataVencimento,
+      aprovacao.status,
+      aprovacao.createdBy,
+      aprovacao.decidedBy || "",
+      aprovacao.note || "",
+    ].join(" ").toLowerCase();
+
+    return haystack.includes(clean);
+  });
+}
 
 function countApprovals(aprovacoes: AprovacaoEnvio[]) {
   return aprovacoes.reduce<Record<AprovacaoEnvio["status"], number>>((acc, aprovacao) => {
