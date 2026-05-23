@@ -16,7 +16,11 @@ if [ -z "$SECRET" ]; then
 fi
 
 PORT_VALUE="${PORT:-3000}"
-response="$(curl -fsS -X POST -H "x-glc-webhook-secret: $SECRET" "http://127.0.0.1:${PORT_VALUE}/api/telegram/daily-summary")"
+DRY_RUN_PARAM=""
+if [ "${DAILY_SUMMARY_DRY_RUN:-0}" = "1" ]; then
+  DRY_RUN_PARAM="?dryRun=1"
+fi
+response="$(curl -fsS -X POST -H "x-glc-webhook-secret: $SECRET" "http://127.0.0.1:${PORT_VALUE}/api/telegram/daily-summary${DRY_RUN_PARAM}")"
 node -e '
 const j = JSON.parse(process.argv[1]);
 console.log(JSON.stringify({
