@@ -96,7 +96,7 @@ export default function FinanceiroPage() {
   const cleanIds = useMemo(() => ids.split(/[\s,;]+/).map((id) => id.trim()).filter(Boolean), [ids]);
   const approvalCounts = useMemo(() => countApprovals(aprovacoes), [aprovacoes]);
   const approvalSummary = useMemo(() => buildApprovalSummary(aprovacoes), [aprovacoes]);
-  const filteredApprovals = useMemo(() => filterApprovals(aprovacoes, approvalFilter, approvalSearch), [aprovacoes, approvalFilter, approvalSearch]);
+  const filteredApprovals = useMemo(() => sortApprovalsByDuePriority(filterApprovals(aprovacoes, approvalFilter, approvalSearch)), [aprovacoes, approvalFilter, approvalSearch]);
 
   useEffect(() => {
     carregarAprovacoes();
@@ -311,7 +311,7 @@ export default function FinanceiroPage() {
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => exportApprovalsCsv(filteredApprovals)} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white">Exportar CSV filtrado</button>
               <button onClick={() => exportApprovalsJson(filteredApprovals)} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white">Exportar JSON filtrado</button>
-              <span className="text-xs text-[#94A3B8]">Exporta somente registros visíveis no filtro/busca atual.</span>
+              <span className="text-xs text-[#94A3B8]">Exporta somente registros visíveis no filtro/busca atual. Lista ordenada por vencimento/prioridade.</span>
             </div>
           </div>
         ) : null}
@@ -484,6 +484,37 @@ function downloadTextFile(filename: string, content: string, type: string) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+
+function sortApprovalsByDuePriority(aprovacoes: AprovacaoEnvio[]) {
+  return [...aprovacoes].sort((a, b) => {
+    const dueA = getDuePriorityValue(a.dataVencimento);
+    const dueB = getDuePriorityValue(b.dataVencimento);
+    if (dueA !== dueB) return dueA - dueB;
+
+    const statusA = statusPriority(a.status);
+    const statusB = statusPriority(b.status);
+    if (statusA !== statusB) return statusA - statusB;
+
+    return (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt);
+  });
+}
+
+function getDuePriorityValue(value: string) {
+  const due = parseDueDate(value);
+  if (!due) return 999999;
+
+  const today = new Date();
+  const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.round((due.getTime() - startToday.getTime()) / 86400000);
+}
+
+function statusPriority(status: AprovacaoEnvio["status"]) {
+  if (status === "pending") return 0;
+  if (status === "approved") return 1;
+  if (status === "manual_sent") return 2;
+  return 3;
 }
 
 function filterApprovals(aprovacoes: AprovacaoEnvio[], status: "all" | AprovacaoEnvio["status"], search: string) {
