@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, CircleDollarSign, Copy, FileWarning, Loader2, Lock, RefreshCw, Search, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, CircleDollarSign, Copy, FileWarning, LayoutDashboard, Loader2, Lock, RefreshCw, Search, ShieldCheck, XCircle } from "lucide-react";
 
 type Status = "segura" | "multiplas" | "sem_fatura" | "indisponivel";
 
@@ -204,11 +204,18 @@ export default function FinanceiroPage() {
               Consulta interna para validar fatura única antes de qualquer boleto/PIX. Esta tela não envia mensagem para cliente e bloqueia casos com múltiplas faturas.
             </p>
           </div>
-          <Link href="/dashboard/chamados"
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1E3050] border border-[#2A4060] hover:border-[#14B8A6]/40 px-4 py-2 text-xs text-[#CBD5E1] hover:text-white transition-all">
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Voltar para chamados
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/dashboard"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1E3050] border border-[#2A4060] hover:border-[#14B8A6]/40 px-4 py-2 text-xs text-[#CBD5E1] hover:text-white transition-all">
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              Central
+            </Link>
+            <Link href="/dashboard/chamados"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1E3050] border border-[#2A4060] hover:border-[#14B8A6]/40 px-4 py-2 text-xs text-[#CBD5E1] hover:text-white transition-all">
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Voltar para chamados
+            </Link>
+          </div>
         </div>
       </header>
 

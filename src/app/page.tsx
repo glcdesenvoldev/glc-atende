@@ -1,2 +1,5 @@
 import { redirect } from "next/navigation";
-export default function Page() { redirect("/dashboard/chamados"); }
+
+export default function Page() {
+  redirect("/dashboard");
+}
