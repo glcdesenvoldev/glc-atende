@@ -169,18 +169,12 @@ export default function FinanceiroPage() {
     }
   }
 
-  function adicionarCliente(id: string) {
-    const atuais = new Set(ids.split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean));
-    atuais.add(id);
-    setIds(Array.from(atuais).join("\n"));
-  }
-
-  async function consultar() {
+  async function consultarIdsFinanceiro(idsConsulta: string) {
     setLoading(true);
     setError("");
     setData(null);
     try {
-      const res = await fetch(`/api/financeiro/faturas?ids=${encodeURIComponent(ids)}`);
+      const res = await fetch(`/api/financeiro/faturas?ids=${encodeURIComponent(idsConsulta)}`);
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error || "Falha ao consultar financeiro.");
       setData(json);
@@ -189,6 +183,17 @@ export default function FinanceiroPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function consultarCliente(cliente: ClienteBusca) {
+    setClientes([cliente]);
+    setIds(cliente.id);
+    setBuscaCliente(cliente.nome || cliente.id);
+    await consultarIdsFinanceiro(cliente.id);
+  }
+
+  async function consultar() {
+    await consultarIdsFinanceiro(ids);
   }
 
   return (
@@ -262,10 +267,11 @@ export default function FinanceiroPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => adicionarCliente(cliente.id)}
-                  className="rounded-lg bg-[#F97316] px-3 py-2 text-xs font-semibold hover:bg-[#ea6c0c]"
+                  onClick={() => consultarCliente(cliente)}
+                  disabled={loading}
+                  className="rounded-lg bg-[#F97316] px-3 py-2 text-xs font-semibold hover:bg-[#ea6c0c] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  Adicionar à consulta financeira
+                  {loading ? "Consultando..." : "Consultar financeiro deste cliente"}
                 </button>
               </div>
             ))}
