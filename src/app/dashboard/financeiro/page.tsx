@@ -71,6 +71,15 @@ type ClienteBusca = {
   telefone_final: string;
 };
 
+type AuditoriaFinanceira = {
+  ts: string;
+  action: string;
+  status: string;
+  id: string;
+  clientId: string;
+  faturaId: string;
+};
+
 const statusConfig: Record<Status, { label: string; cls: string; icon: React.ReactNode }> = {
   segura: { label: "Fatura segura", cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300", icon: <ShieldCheck className="w-4 h-4" /> },
   multiplas: { label: "Bloqueado: múltiplas", cls: "border-amber-500/30 bg-amber-500/10 text-amber-300", icon: <FileWarning className="w-4 h-4" /> },
@@ -92,6 +101,7 @@ export default function FinanceiroPage() {
   const [approvalNotes, setApprovalNotes] = useState<Record<string, string>>({});
   const [approvalFilter, setApprovalFilter] = useState<"all" | AprovacaoEnvio["status"]>("all");
   const [approvalSearch, setApprovalSearch] = useState("");
+  const [auditoria, setAuditoria] = useState<AuditoriaFinanceira[]>([]);
 
   const cleanIds = useMemo(() => ids.split(/[\s,;]+/).map((id) => id.trim()).filter(Boolean), [ids]);
   const approvalCounts = useMemo(() => countApprovals(aprovacoes), [aprovacoes]);
@@ -101,6 +111,7 @@ export default function FinanceiroPage() {
 
   useEffect(() => {
     carregarAprovacoes();
+    carregarAuditoria();
   }, []);
 
   async function carregarAprovacoes() {
@@ -108,6 +119,18 @@ export default function FinanceiroPage() {
     if (!res.ok) return;
     const json = await res.json();
     if (json.ok) setAprovacoes(json.items || []);
+  }
+
+  async function carregarAuditoria() {
+    const res = await fetch("/api/financeiro/auditoria?limit=20");
+    if (!res.ok) return;
+    const json = await res.json();
+    if (json.ok) setAuditoria(json.items || []);
+  }
+
+  async function atualizarFinanceiroInterno() {
+    await carregarAprovacoes();
+    await carregarAuditoria();
   }
 
   async function decidirAprovacao(id: string, action: "approve" | "reject" | "manual_sent") {
@@ -126,6 +149,7 @@ export default function FinanceiroPage() {
     setApprovalMsg(action === "manual_sent" ? "Envio manual registrado. Nenhuma mensagem foi enviada automaticamente." : "Status atualizado. Nenhuma mensagem foi enviada ao cliente.");
     setApprovalNotes((current) => ({ ...current, [id]: "" }));
     await carregarAprovacoes();
+    await carregarAuditoria();
   }
 
   async function buscarClientes() {
@@ -277,7 +301,7 @@ export default function FinanceiroPage() {
 
           <section className="space-y-3">
             {data.items.map((item) => (
-              <FinanceiroCard key={item.idCliente} item={item} onApprovalCreated={carregarAprovacoes} />
+              <FinanceiroCard key={item.idCliente} item={item} onApprovalCreated={atualizarFinanceiroInterno} />
             ))}
           </section>
         </>
@@ -363,6 +387,46 @@ export default function FinanceiroPage() {
                 <p className="text-xs text-amber-200">{aprovacao.safetyMessage}</p>
               </div>
             ))}
+          </div>
+        )}
+      </section>
+
+      <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Auditoria financeira recente</h2>
+            <p className="text-xs text-[#94A3B8] mt-1">Rastro interno das solicitações, aprovações, rejeições e marcações de envio manual. Dados sensíveis continuam fora do log.</p>
+          </div>
+          <button onClick={carregarAuditoria} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white">Atualizar auditoria</button>
+        </div>
+        {auditoria.length === 0 ? (
+          <p className="text-sm text-[#94A3B8]">Nenhum evento financeiro auditado ainda.</p>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-[#2A4060]">
+            <table className="min-w-full text-left text-xs">
+              <thead className="bg-[#0F2744] text-[#94A3B8]">
+                <tr>
+                  <th className="px-3 py-2">Data</th>
+                  <th className="px-3 py-2">Evento</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Cliente</th>
+                  <th className="px-3 py-2">Fatura</th>
+                  <th className="px-3 py-2">Protocolo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditoria.map((event, index) => (
+                  <tr key={`${event.ts}-${event.id}-${index}`} className="border-t border-[#2A4060] bg-[#0D1B2A] text-[#CBD5E1]">
+                    <td className="px-3 py-2 whitespace-nowrap">{event.ts ? formatDate(event.ts) : "-"}</td>
+                    <td className="px-3 py-2">{auditActionLabel(event.action)}</td>
+                    <td className="px-3 py-2">{event.status || "-"}</td>
+                    <td className="px-3 py-2">{event.clientId || "-"}</td>
+                    <td className="px-3 py-2">{event.faturaId || "-"}</td>
+                    <td className="px-3 py-2 font-mono">{event.id ? event.id.slice(0, 8) : "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </section>
@@ -808,6 +872,13 @@ function statusAprovacao(status: "pending" | "approved" | "rejected" | "manual_s
   if (status === "approved") return "aprovado internamente";
   if (status === "manual_sent") return "enviado manualmente";
   return "rejeitado";
+}
+
+function auditActionLabel(action: string) {
+  if (action === "finance_approval_create") return "Solicitação criada";
+  if (action === "finance_approval_decide") return "Decisão registrada";
+  if (action === "finance_approval_manual_sent") return "Envio manual marcado";
+  return action || "-";
 }
 
 function formatDate(value: string) {
