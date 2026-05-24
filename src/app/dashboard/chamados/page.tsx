@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
-import { Headphones, RefreshCw, AlertCircle, Clock, CheckCircle2, Loader2, User, ChevronDown, ChevronUp, Send, LogOut, CircleDollarSign, ShieldCheck } from "lucide-react";
+import { Headphones, RefreshCw, AlertCircle, Clock, CheckCircle2, Loader2, User, ChevronDown, ChevronUp, Send, LogOut, CircleDollarSign, ShieldCheck, LayoutDashboard } from "lucide-react";
 
 interface Chamado {
   id: string;
@@ -105,6 +105,11 @@ export default function ChamadosPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/dashboard"
+            className="flex items-center gap-1.5 bg-[#1E3050] border border-[#2A4060] hover:border-[#14B8A6]/40 text-[#94A3B8] hover:text-white rounded-xl px-3 py-2 text-xs transition-all">
+            <LayoutDashboard className="w-3.5 h-3.5" />
+            Central
+          </Link>
           <Link href="/dashboard/financeiro"
             className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 rounded-xl px-3 py-2 text-xs transition-all">
             <CircleDollarSign className="w-3.5 h-3.5" />
