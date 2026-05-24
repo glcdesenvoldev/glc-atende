@@ -224,6 +224,24 @@ export default function FinanceiroPage() {
         </div>
       </header>
 
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <SafeStepCard
+          step="1"
+          title="Escolha o cliente"
+          description="Busque por nome, telefone ou ID e consulte somente o cliente escolhido para evitar mistura de faturas."
+        />
+        <SafeStepCard
+          step="2"
+          title="Confirme a fatura"
+          description="Envio só é seguro quando houver exatamente uma fatura aberta. Múltiplas faturas continuam bloqueadas."
+        />
+        <SafeStepCard
+          step="3"
+          title="Copie manualmente"
+          description="A mensagem pronta é apenas apoio interno: confira no IXC antes de enviar ao cliente."
+        />
+      </section>
+
       <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
         <div>
           <h2 className="text-lg font-semibold">Buscar cliente no IXC</h2>
@@ -486,6 +504,22 @@ function ApprovalRiskSummaryCards({ summary }: { summary: ReturnType<typeof buil
       <RiskCard label="Vencidas" value={summary.overdue} className="border-rose-500/30 bg-rose-500/10 text-rose-100" />
       <RiskCard label="Vencem hoje" value={summary.today} className="border-orange-500/30 bg-orange-500/10 text-orange-100" />
       <RiskCard label="Vencem em até 3 dias" value={summary.nextThreeDays} className="border-amber-500/30 bg-amber-500/10 text-amber-100" />
+    </div>
+  );
+}
+
+function SafeStepCard({ step, title, description }: { step: string; title: string; description: string }) {
+  return (
+    <div className="rounded-2xl bg-[#1E3050] border border-[#2A4060] p-4">
+      <div className="flex items-start gap-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#14B8A6]/30 bg-[#14B8A6]/10 text-sm font-bold text-[#5EEAD4]">
+          {step}
+        </span>
+        <div>
+          <p className="text-sm font-semibold text-white">{title}</p>
+          <p className="mt-1 text-xs leading-relaxed text-[#94A3B8]">{description}</p>
+        </div>
+      </div>
     </div>
   );
 }
