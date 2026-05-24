@@ -134,9 +134,9 @@ export default function FinanceiroPage() {
     await carregarAuditoria();
   }
 
-  async function decidirAprovacao(id: string, action: "approve" | "reject" | "manual_sent") {
+  async function decidirAprovacao(id: string, action: "approve" | "reject" | "manual_sent", noteOverride?: string) {
     setApprovalMsg("");
-    const note = approvalNotes[id] || "";
+    const note = noteOverride ?? approvalNotes[id] ?? "";
     const res = await fetch("/api/financeiro/aprovacoes", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -151,6 +151,21 @@ export default function FinanceiroPage() {
     setApprovalNotes((current) => ({ ...current, [id]: "" }));
     await carregarAprovacoes();
     await carregarAuditoria();
+  }
+
+  async function copiarMensagemEMarcarEnviado(aprovacao: AprovacaoEnvio) {
+    setApprovalMsg("");
+    const confirmed = window.confirm("Confirma que você conferiu no IXC, vai copiar a mensagem e marcar esta aprovação como enviada manualmente? Nenhum WhatsApp será enviado automaticamente.");
+    if (!confirmed) return;
+
+    try {
+      await navigator.clipboard.writeText(mensagemClienteAprovacao(aprovacao));
+      const manualNote = (approvalNotes[aprovacao.id] || "").trim() || `Mensagem copiada e marcada como enviada manualmente em ${new Date().toLocaleString("pt-BR")}.`;
+      await decidirAprovacao(aprovacao.id, "manual_sent", manualNote);
+      setApprovalMsg("Mensagem copiada. Envio manual registrado na auditoria. Nenhuma mensagem foi enviada automaticamente.");
+    } catch {
+      setApprovalMsg("Não foi possível copiar automaticamente. Copie pela mensagem aprovada e marque o envio manual depois de conferir.");
+    }
   }
 
   async function buscarClientes() {
@@ -415,7 +430,10 @@ export default function FinanceiroPage() {
                       <button onClick={() => decidirAprovacao(aprovacao.id, "reject")} className="rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold hover:bg-rose-500">Rejeitar</button>
                     </div>
                   ) : aprovacao.status === "approved" ? (
-                    <button onClick={() => decidirAprovacao(aprovacao.id, "manual_sent")} className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold hover:bg-sky-500">Marcar enviado manualmente</button>
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={() => copiarMensagemEMarcarEnviado(aprovacao)} className="rounded-lg bg-[#14B8A6] px-3 py-2 text-xs font-semibold hover:bg-[#0f9f90]">Copiar mensagem + marcar enviado</button>
+                      <button onClick={() => decidirAprovacao(aprovacao.id, "manual_sent")} className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold hover:bg-sky-500">Só marcar enviado manualmente</button>
+                    </div>
                   ) : null}
                 </div>
                 {aprovacao.status === "pending" || aprovacao.status === "approved" ? (
