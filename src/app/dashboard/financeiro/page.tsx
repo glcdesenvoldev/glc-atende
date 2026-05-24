@@ -395,6 +395,11 @@ export default function FinanceiroPage() {
           <p className="text-sm text-[#94A3B8]">Nenhuma solicitação neste filtro.</p>
         ) : (
           <div className="space-y-2">
+            {filteredApprovals.length > 10 ? (
+              <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 text-xs text-amber-100">
+                Exibindo as 10 solicitações mais urgentes de {filteredApprovals.length} encontradas no filtro atual. Use busca/filtros ou exporte CSV/JSON para auditoria completa.
+              </div>
+            ) : null}
             {filteredApprovals.slice(0, 10).map((aprovacao) => (
               <div key={aprovacao.id} className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-3 text-sm space-y-2">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
