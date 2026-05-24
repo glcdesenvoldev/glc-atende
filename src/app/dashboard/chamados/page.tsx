@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
-import { Headphones, RefreshCw, AlertCircle, Clock, CheckCircle2, Loader2, User, ChevronDown, ChevronUp, Send, LogOut } from "lucide-react";
+import { Headphones, RefreshCw, AlertCircle, Clock, CheckCircle2, Loader2, User, ChevronDown, ChevronUp, Send, LogOut, CircleDollarSign, ShieldCheck } from "lucide-react";
 
 interface Chamado {
   id: string;
@@ -104,6 +105,11 @@ export default function ChamadosPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/dashboard/financeiro"
+            className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 rounded-xl px-3 py-2 text-xs transition-all">
+            <CircleDollarSign className="w-3.5 h-3.5" />
+            Financeiro Seguro
+          </Link>
           <div className="flex bg-[#1E3050] border border-[#2A4060] rounded-xl p-1 gap-1">
             {["todos","A","M","B"].map(f => (
               <button key={f} onClick={() => setFiltro(f)}
@@ -126,6 +132,22 @@ export default function ChamadosPage() {
           </form>
         </div>
       </div>
+
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Link href="/dashboard/financeiro"
+          className="bg-[#1E3050] border border-emerald-500/20 hover:border-emerald-400/40 rounded-2xl p-4 transition-all group">
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-2 text-emerald-300">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white group-hover:text-emerald-100">Financeiro Seguro</h2>
+              <p className="text-xs text-[#94A3B8] mt-1">Consultar faturas, aprovações internas e auditoria financeira recente.</p>
+              <p className="text-xs text-emerald-300 mt-2">Abrir painel financeiro →</p>
+            </div>
+          </div>
+        </Link>
+      </section>
 
       <div className="space-y-3">
         {filtered.length === 0 ? (
