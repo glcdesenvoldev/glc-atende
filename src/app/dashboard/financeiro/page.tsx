@@ -96,6 +96,7 @@ export default function FinanceiroPage() {
   const cleanIds = useMemo(() => ids.split(/[\s,;]+/).map((id) => id.trim()).filter(Boolean), [ids]);
   const approvalCounts = useMemo(() => countApprovals(aprovacoes), [aprovacoes]);
   const approvalSummary = useMemo(() => buildApprovalSummary(aprovacoes), [aprovacoes]);
+  const approvalRiskSummary = useMemo(() => buildApprovalRiskSummary(aprovacoes), [aprovacoes]);
   const filteredApprovals = useMemo(() => sortApprovalsByDuePriority(filterApprovals(aprovacoes, approvalFilter, approvalSearch)), [aprovacoes, approvalFilter, approvalSearch]);
 
   useEffect(() => {
@@ -287,6 +288,7 @@ export default function FinanceiroPage() {
           <p className="text-xs text-[#94A3B8] mt-1">Aprovação apenas interna nesta fase. O sistema ainda não envia WhatsApp para cliente.</p>
         </div>
         {aprovacoes.length > 0 ? <ApprovalSummaryCards summary={approvalSummary} /> : null}
+        {aprovacoes.length > 0 ? <ApprovalRiskSummaryCards summary={approvalRiskSummary} /> : null}
         {approvalMsg ? <div className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-3 text-sm text-amber-200">{approvalMsg}</div> : null}
         {aprovacoes.length > 0 ? (
           <div className="space-y-3">
@@ -372,6 +374,37 @@ export default function FinanceiroPage() {
 
 
 
+
+
+function buildApprovalRiskSummary(aprovacoes: AprovacaoEnvio[]) {
+  return aprovacoes.reduce((acc, aprovacao) => {
+    const diffDays = getDuePriorityValue(aprovacao.dataVencimento);
+    if (diffDays < 0) acc.overdue += 1;
+    else if (diffDays === 0) acc.today += 1;
+    else if (diffDays <= 3) acc.nextThreeDays += 1;
+    return acc;
+  }, { overdue: 0, today: 0, nextThreeDays: 0 });
+}
+
+function ApprovalRiskSummaryCards({ summary }: { summary: ReturnType<typeof buildApprovalRiskSummary> }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <RiskCard label="Vencidas" value={summary.overdue} className="border-rose-500/30 bg-rose-500/10 text-rose-100" />
+      <RiskCard label="Vencem hoje" value={summary.today} className="border-orange-500/30 bg-orange-500/10 text-orange-100" />
+      <RiskCard label="Vencem em até 3 dias" value={summary.nextThreeDays} className="border-amber-500/30 bg-amber-500/10 text-amber-100" />
+    </div>
+  );
+}
+
+function RiskCard({ label, value, className }: { label: string; value: number; className: string }) {
+  return (
+    <div className={`rounded-2xl border p-4 ${className}`}>
+      <p className="text-xs opacity-80">Risco por vencimento</p>
+      <p className="mt-1 text-sm font-semibold">{label}</p>
+      <p className="mt-2 text-3xl font-bold">{value}</p>
+    </div>
+  );
+}
 
 function buildApprovalSummary(aprovacoes: AprovacaoEnvio[]) {
   const totalManualSent = aprovacoes
