@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, CircleDollarSign, Copy, FileWarning, Loader2, Lock, RefreshCw, Search, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, CircleDollarSign, Copy, FileWarning, Loader2, Lock, RefreshCw, Search, ShieldCheck, XCircle } from "lucide-react";
 
 type Status = "segura" | "multiplas" | "sem_fatura" | "indisponivel";
 
@@ -192,14 +193,23 @@ export default function FinanceiroPage() {
 
   return (
     <div className="min-h-screen bg-[#0D1B2A] p-6 text-white space-y-6">
-      <header className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <CircleDollarSign className="w-7 h-7 text-[#14B8A6]" />
-          <h1 className="text-2xl font-bold">Financeiro Seguro — GLC Atende</h1>
+      <header className="flex flex-col gap-3">
+        <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <CircleDollarSign className="w-7 h-7 text-[#14B8A6]" />
+              <h1 className="text-2xl font-bold">Financeiro Seguro — GLC Atende</h1>
+            </div>
+            <p className="text-sm text-[#94A3B8] max-w-3xl">
+              Consulta interna para validar fatura única antes de qualquer boleto/PIX. Esta tela não envia mensagem para cliente e bloqueia casos com múltiplas faturas.
+            </p>
+          </div>
+          <Link href="/dashboard/chamados"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1E3050] border border-[#2A4060] hover:border-[#14B8A6]/40 px-4 py-2 text-xs text-[#CBD5E1] hover:text-white transition-all">
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Voltar para chamados
+          </Link>
         </div>
-        <p className="text-sm text-[#94A3B8] max-w-3xl">
-          Consulta interna para validar fatura única antes de qualquer boleto/PIX. Esta tela não envia mensagem para cliente e bloqueia casos com múltiplas faturas.
-        </p>
       </header>
 
       <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
