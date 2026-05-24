@@ -252,7 +252,14 @@ export default function FinanceiroPage() {
               <div key={cliente.id} className="flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-xl bg-[#0F2744] border border-[#2A4060] p-3">
                 <div className="text-sm">
                   <p className="font-semibold">#{cliente.id} — {cliente.nome}</p>
-                  <p className="text-xs text-[#94A3B8]">Status: {cliente.status || "-"} • {cliente.bairro || "bairro -"} / {cliente.cidade || "cidade -"} {cliente.telefone_final ? `• Tel. ${cliente.telefone_final}` : ""}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#94A3B8]">
+                    <span>Status:</span>
+                    <span className={`rounded-full border px-2 py-0.5 font-medium ${clienteStatusClass(cliente.status)}`}>
+                      {clienteStatusLabel(cliente.status)}
+                    </span>
+                    <span>• {cliente.bairro || "bairro -"} / {cliente.cidade || "cidade -"}</span>
+                    {cliente.telefone_final ? <span>• Tel. {cliente.telefone_final}</span> : null}
+                  </div>
                 </div>
                 <button
                   onClick={() => adicionarCliente(cliente.id)}
@@ -889,6 +896,24 @@ function statusAprovacao(status: "pending" | "approved" | "rejected" | "manual_s
   if (status === "approved") return "aprovado internamente";
   if (status === "manual_sent") return "enviado manualmente";
   return "rejeitado";
+}
+
+function clienteStatusLabel(status: string) {
+  const normalized = String(status || "").trim().toUpperCase();
+  if (["A", "ATIVO", "ACTIVE"].includes(normalized)) return "Ativo";
+  if (["I", "INATIVO", "INACTIVE", "D", "DESATIVADO", "DESATIVADA"].includes(normalized)) return "Desativado";
+  if (["B", "BLOQUEADO", "BLOQUEADA", "SUSPENSO", "SUSPENSA"].includes(normalized)) return "Bloqueado";
+  if (["C", "CANCELADO", "CANCELADA"].includes(normalized)) return "Cancelado";
+  return status || "Não informado";
+}
+
+function clienteStatusClass(status: string) {
+  const label = clienteStatusLabel(status);
+  if (label === "Ativo") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+  if (label === "Bloqueado") return "border-amber-500/30 bg-amber-500/10 text-amber-300";
+  if (label === "Cancelado") return "border-rose-500/30 bg-rose-500/10 text-rose-300";
+  if (label === "Desativado") return "border-slate-500/30 bg-slate-500/10 text-slate-300";
+  return "border-[#2A4060] bg-[#0D1B2A] text-[#CBD5E1]";
 }
 
 function auditActionLabel(action: string) {
