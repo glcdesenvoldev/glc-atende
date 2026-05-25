@@ -2,6 +2,7 @@ import { appendFile, mkdir } from "fs/promises";
 import { dirname } from "path";
 import QRCode from "qrcode";
 import { createFinanceApproval, decideFinanceApproval, listFinanceApprovals, markFinanceApprovalManualSent } from "@/lib/finance-approvals";
+import type { FinanceApproval } from "@/lib/finance-approvals";
 import { digitsOnly, isCnpj, isCpf, sanitizeForAudit } from "@/lib/lgpd";
 import { ixcApi, type IxcChamado, type IxcCliente, type IxcFatura, type IxcContrato } from "@/lib/ixc";
 import { runRetentionCleanup } from "@/lib/retention";
@@ -1170,6 +1171,51 @@ export async function sendTelegramMessage(chatId: string | number, text: string,
   });
 
   return res.json();
+}
+
+export async function notifyFinanceApprovalEvent(event: "created" | "approved" | "rejected" | "manual_sent", approval: FinanceApproval) {
+  const { botToken, allowedGroups, allowedUsers } = getTelegramConfig();
+  if (!botToken) return { ok: false, skipped: "telegram_not_configured" };
+
+  const targets = parseCsvIds(process.env.TELEGRAM_FINANCE_NOTIFY_CHAT_IDS);
+  const fallbackTargets = allowedGroups.length ? allowedGroups : allowedUsers.slice(0, 1);
+  const chatIds = targets.length ? targets : fallbackTargets;
+  if (!chatIds.length) return { ok: false, skipped: "no_finance_notify_target" };
+
+  const message = financeApprovalEventMessage(event, approval);
+  const results = await Promise.allSettled(chatIds.map((chatId) => sendTelegramMessage(chatId, message)));
+  return { ok: true, sent: results.filter((result) => result.status === "fulfilled").length, total: chatIds.length };
+}
+
+function financeApprovalEventMessage(event: "created" | "approved" | "rejected" | "manual_sent", approval: FinanceApproval) {
+  const title = event === "created"
+    ? "🧾 Nova aprovação financeira pendente"
+    : event === "approved"
+      ? "✅ Aprovação financeira liberada para envio manual"
+      : event === "manual_sent"
+        ? "📨 Envio manual financeiro registrado"
+        : "❌ Aprovação financeira rejeitada";
+
+  return [
+    `<b>${title}</b>`,
+    "",
+    `Cliente: <code>${escapeHtml(approval.idCliente)}</code>`,
+    `Fatura: <code>${escapeHtml(approval.faturaId)}</code>`,
+    `Valor: <b>R$ ${escapeHtml(approval.valor || "-")}</b>`,
+    `Vencimento: ${escapeHtml(approval.dataVencimento || "-")}`,
+    `Status: ${escapeHtml(statusAprovacaoLabel(approval.status))}`,
+    `Protocolo: <code>${escapeHtml(approval.id.slice(0, 8))}</code>`,
+    approval.note ? `Obs.: ${escapeHtml(approval.note)}` : undefined,
+    "",
+    "⚠️ Aviso interno. Nenhum WhatsApp foi enviado automaticamente e nenhum pagamento foi baixado no IXC.",
+  ].filter((line): line is string => Boolean(line)).join("\n");
+}
+
+function statusAprovacaoLabel(status: FinanceApproval["status"]) {
+  if (status === "pending") return "pendente";
+  if (status === "approved") return "aprovado internamente";
+  if (status === "manual_sent") return "enviado manualmente";
+  return "rejeitado";
 }
 
 function classifyLookupTerm(value: string) {
