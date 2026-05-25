@@ -271,6 +271,8 @@ export default function FinanceiroPage() {
         />
       </section>
 
+      <BillingCadencePreview />
+
       <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
         <div>
           <h2 className="text-lg font-semibold">Buscar cliente no IXC</h2>
@@ -599,6 +601,44 @@ function buildApprovalRiskSummary(aprovacoes: AprovacaoEnvio[]) {
     else if (diffDays <= 3) acc.nextThreeDays += 1;
     return acc;
   }, { overdue: 0, today: 0, nextThreeDays: 0 });
+}
+
+function BillingCadencePreview() {
+  const rules = [
+    { day: "D-5", title: "5 dias antes", action: "Lembrete preventivo", tone: "neutro", description: "Aviso educado antes do vencimento, sem tom de cobrança pesada." },
+    { day: "D0", title: "No vencimento", action: "Lembrete de vencimento", tone: "atenção", description: "Reforça vencimento no dia e orienta pagamento pelos canais oficiais." },
+    { day: "D+3", title: "3 dias após", action: "Cobrança leve", tone: "cobrança", description: "Mensagem curta informando pendência e risco operacional, sem ameaça indevida." },
+  ];
+
+  return (
+    <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Régua segura de cobrança WhatsApp — planejamento</h2>
+          <p className="text-xs text-[#94A3B8] mt-1 max-w-3xl">
+            Base sugerida para envio futuro via Evolution API: 5 dias antes, no vencimento e 3 dias após. Nesta fase fica em modo planejamento/preview; nenhum WhatsApp é enviado automaticamente.
+          </p>
+        </div>
+        <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-200">Envio automático bloqueado</span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {rules.map((rule) => (
+          <div key={rule.day} className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-4 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="rounded-full bg-[#14B8A6]/10 border border-[#14B8A6]/30 px-2 py-1 text-xs font-bold text-[#5EEAD4]">{rule.day}</span>
+              <span className="text-[11px] uppercase tracking-wide text-[#94A3B8]">{rule.tone}</span>
+            </div>
+            <p className="font-semibold text-white">{rule.title}</p>
+            <p className="text-sm text-[#CBD5E1]">{rule.action}</p>
+            <p className="text-xs leading-relaxed text-[#94A3B8]">{rule.description}</p>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs leading-relaxed text-rose-100">
+        <b>Trava LGPD/operacional:</b> antes de qualquer disparo automático real, precisa validar base legal, opt-out, horário comercial, limite de tentativas, template aprovado, logs de consentimento/legítimo interesse e conferência de fatura única segura. Por enquanto, o sistema só prepara e orienta.
+      </div>
+    </section>
+  );
 }
 
 function ApprovalRiskSummaryCards({ summary }: { summary: ReturnType<typeof buildApprovalRiskSummary> }) {
