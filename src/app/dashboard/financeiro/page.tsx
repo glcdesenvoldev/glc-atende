@@ -93,6 +93,28 @@ type AuditoriaFinanceira = {
   faturaId: string;
 };
 
+type ReguaPreviewItem = {
+  idCliente: string;
+  faturaId?: string;
+  valor?: string;
+  dataVencimento?: string;
+  diasRelativos?: number;
+  etapa?: "D-5" | "D0" | "D+3";
+  status: "ready" | "blocked";
+  motivo: string;
+  hasPix?: boolean;
+  hasLinhaDigitavel?: boolean;
+  hasLink?: boolean;
+};
+
+type ReguaPreviewResponse = {
+  ok: boolean;
+  dryRun: boolean;
+  safety: string;
+  resumo: { total: number; ready: number; blocked: number; etapas: Record<"D-5" | "D0" | "D+3", number> };
+  items: ReguaPreviewItem[];
+};
+
 const statusConfig: Record<Status, { label: string; cls: string; icon: React.ReactNode }> = {
   segura: { label: "Fatura segura", cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300", icon: <ShieldCheck className="w-4 h-4" /> },
   multiplas: { label: "Bloqueado: múltiplas", cls: "border-amber-500/30 bg-amber-500/10 text-amber-300", icon: <FileWarning className="w-4 h-4" /> },
@@ -116,6 +138,9 @@ export default function FinanceiroPage() {
   const [approvalFilter, setApprovalFilter] = useState<"all" | AprovacaoEnvio["status"]>("all");
   const [approvalSearch, setApprovalSearch] = useState("");
   const [auditoria, setAuditoria] = useState<AuditoriaFinanceira[]>([]);
+  const [reguaPreview, setReguaPreview] = useState<ReguaPreviewResponse | null>(null);
+  const [loadingRegua, setLoadingRegua] = useState(false);
+  const [reguaError, setReguaError] = useState("");
 
   const cleanIds = useMemo(() => ids.split(/[\s,;]+/).map((id) => id.trim()).filter(Boolean), [ids]);
   const approvalCounts = useMemo(() => countApprovals(aprovacoes), [aprovacoes]);
@@ -213,16 +238,34 @@ export default function FinanceiroPage() {
     }
   }
 
+  async function consultarReguaPreview(idsConsulta: string) {
+    setLoadingRegua(true);
+    setReguaError("");
+    setReguaPreview(null);
+    try {
+      const res = await fetch(`/api/financeiro/regua-preview?ids=${encodeURIComponent(idsConsulta)}`);
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error || "Falha ao simular régua.");
+      setReguaPreview(json);
+    } catch (err) {
+      setReguaError(err instanceof Error ? err.message : "Falha ao simular régua.");
+    } finally {
+      setLoadingRegua(false);
+    }
+  }
+
   async function consultarCliente(cliente: ClienteBusca) {
     setClienteSelecionado(cliente);
     setClientes([cliente]);
     setIds(cliente.id);
     setBuscaCliente(cliente.nome || cliente.id);
     await consultarIdsFinanceiro(cliente.id);
+    await consultarReguaPreview(cliente.id);
   }
 
   async function consultar() {
     await consultarIdsFinanceiro(ids);
+    await consultarReguaPreview(ids);
   }
 
   return (
@@ -272,6 +315,8 @@ export default function FinanceiroPage() {
       </section>
 
       <BillingCadencePreview />
+
+      <ReguaPreviewPanel preview={reguaPreview} loading={loadingRegua} error={reguaError} />
 
       <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
         <div>
@@ -601,6 +646,66 @@ function buildApprovalRiskSummary(aprovacoes: AprovacaoEnvio[]) {
     else if (diffDays <= 3) acc.nextThreeDays += 1;
     return acc;
   }, { overdue: 0, today: 0, nextThreeDays: 0 });
+}
+
+function ReguaPreviewPanel({ preview, loading, error }: { preview: ReguaPreviewResponse | null; loading: boolean; error: string }) {
+  return (
+    <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Preview automático da régua</h2>
+          <p className="text-xs text-[#94A3B8] mt-1">Após consultar cliente/faturas, esta área mostra quem cairia em D-5, D0 ou D+3. É apenas simulação interna.</p>
+        </div>
+        <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-xs font-semibold text-sky-200">Dry-run</span>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-[#CBD5E1]"><Loader2 className="w-4 h-4 animate-spin" /> Simulando régua...</div>
+      ) : error ? (
+        <div className="flex items-center gap-2 text-rose-200 bg-rose-500/10 border border-rose-500/20 rounded-xl p-3 text-sm"><AlertTriangle className="w-4 h-4" /> {error}</div>
+      ) : !preview ? (
+        <p className="text-sm text-[#94A3B8]">Nenhuma simulação feita ainda. Consulte um cliente para ver a elegibilidade da régua.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <ReguaMiniCard label="Total" value={preview.resumo.total} />
+            <ReguaMiniCard label="Prontas" value={preview.resumo.ready} tone="ready" />
+            <ReguaMiniCard label="Bloqueadas" value={preview.resumo.blocked} tone="blocked" />
+            <ReguaMiniCard label="D-5 / D0 / D+3" value={`${preview.resumo.etapas["D-5"]}/${preview.resumo.etapas.D0}/${preview.resumo.etapas["D+3"]}`} />
+            <ReguaMiniCard label="Modo" value="Sem envio" />
+          </div>
+          <div className="space-y-2">
+            {preview.items.slice(0, 8).map((item, index) => (
+              <div key={`${item.idCliente}-${item.faturaId || index}`} className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-3 text-sm">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                  <div>
+                    <p className="font-semibold">Cliente {item.idCliente}{item.faturaId ? ` · fatura ${item.faturaId}` : ""}</p>
+                    <p className="mt-1 text-xs text-[#94A3B8]">Vencimento: {item.dataVencimento || "-"} · Valor: R$ {item.valor || "-"} · Etapa: {item.etapa || "fora da régua"}</p>
+                  </div>
+                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${item.status === "ready" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200" : "border-amber-500/30 bg-amber-500/10 text-amber-200"}`}>
+                    {item.status === "ready" ? "Pronta para aprovação" : "Bloqueada"}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-[#CBD5E1]">{item.motivo}</p>
+                <p className="mt-1 text-[11px] text-[#94A3B8]">Dados disponíveis: PIX {item.hasPix ? "sim" : "não"} · linha digitável {item.hasLinhaDigitavel ? "sim" : "não"} · link {item.hasLink ? "sim" : "não"}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-emerald-200 bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3">{preview.safety}</p>
+        </>
+      )}
+    </section>
+  );
+}
+
+function ReguaMiniCard({ label, value, tone }: { label: string; value: string | number; tone?: "ready" | "blocked" }) {
+  const color = tone === "ready" ? "text-emerald-200" : tone === "blocked" ? "text-amber-200" : "text-white";
+  return (
+    <div className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-3">
+      <p className="text-[11px] text-[#94A3B8]">{label}</p>
+      <p className={`mt-1 text-xl font-bold ${color}`}>{value}</p>
+    </div>
+  );
 }
 
 function BillingCadencePreview() {
