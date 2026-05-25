@@ -10,7 +10,18 @@ type FaturaResumo = {
   id: string;
   valor: string;
   data_vencimento: string;
+  data_emissao?: string;
   status: string;
+  status_cobranca?: string;
+  has_linha_digitavel?: boolean;
+  has_pix?: boolean;
+  has_link?: boolean;
+  field_lengths?: {
+    linha_digitavel: number;
+    pix_copia_cola: number;
+    link: number;
+    pix_txid: number;
+  };
 };
 
 type FaturaDetalhe = FaturaResumo & {
@@ -813,6 +824,7 @@ function FaturaSegura({ idCliente, fatura, onApprovalCreated }: { idCliente: str
         <Flag ok={fatura.has_pix} label="PIX copia-e-cola" />
         <Flag ok={fatura.has_link} label="Link/PDF" />
       </div>
+      <IxcValidationPanel fatura={fatura} segura />
       {fatura.linha_digitavel ? <CopyBlock label="Linha digitável" value={fatura.linha_digitavel} /> : null}
       {fatura.pix_copia_cola ? <CopyBlock label="PIX copia-e-cola" value={fatura.pix_copia_cola} /> : null}
       {fatura.link ? <CopyBlock label="Link/PDF" value={fatura.link} /> : null}
@@ -834,15 +846,48 @@ function FaturaSegura({ idCliente, fatura, onApprovalCreated }: { idCliente: str
 
 function FaturaResumoView({ fatura }: { fatura: FaturaResumo }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-2 rounded-lg bg-[#0D1B2A] border border-[#2A4060] p-2 text-xs">
-      <Info label="Fatura" value={fatura.id} />
-      <Info label="Valor" value={money(fatura.valor)} />
-      <Info label="Vencimento" value={fatura.data_vencimento || "-"} />
-      <div>
-        <p className="text-[#94A3B8]">Urgência</p>
-        <DueBadge dueDate={fatura.data_vencimento} />
+    <div className="rounded-lg bg-[#0D1B2A] border border-[#2A4060] p-2 text-xs space-y-2">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+        <Info label="Fatura" value={fatura.id} />
+        <Info label="Valor" value={money(fatura.valor)} />
+        <Info label="Vencimento" value={fatura.data_vencimento || "-"} />
+        <div>
+          <p className="text-[#94A3B8]">Urgência</p>
+          <DueBadge dueDate={fatura.data_vencimento} />
+        </div>
+        <Info label="Status" value={fatura.status || "-"} />
       </div>
-      <Info label="Status" value={fatura.status || "-"} />
+      <IxcValidationPanel fatura={fatura} />
+    </div>
+  );
+}
+
+function IxcValidationPanel({ fatura, segura = false }: { fatura: FaturaResumo; segura?: boolean }) {
+  const lengths = fatura.field_lengths;
+  const checks = [
+    { label: "linha/boleto", ok: Boolean(fatura.has_linha_digitavel), detail: lengths ? `${lengths.linha_digitavel} caract.` : "-" },
+    { label: "PIX", ok: Boolean(fatura.has_pix), detail: lengths ? `${lengths.pix_copia_cola} caract.` : "-" },
+    { label: "link/PDF", ok: Boolean(fatura.has_link), detail: lengths ? `${lengths.link} caract.` : "-" },
+    { label: "TXID", ok: Boolean(lengths?.pix_txid), detail: lengths ? `${lengths.pix_txid} caract.` : "-" },
+  ];
+
+  return (
+    <div className="rounded-lg border border-[#2A4060] bg-[#0F2744] p-3 space-y-2">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-1">
+        <p className="text-xs font-semibold text-[#CBD5E1]">Validação IXC — campos reais retornados</p>
+        <p className="text-[11px] text-amber-200">{segura ? "Fatura única localizada" : "Resumo bloqueado para conferência manual"}</p>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        {checks.map((check) => (
+          <div key={check.label} className={`rounded-md border px-2 py-1 ${check.ok ? "border-emerald-500/20 text-emerald-200" : "border-slate-500/20 text-slate-300"}`}>
+            <p className="font-medium">{check.ok ? "✅" : "—"} {check.label}</p>
+            <p className="text-[11px] opacity-75">{check.detail}</p>
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-[#94A3B8]">
+        Use este bloco nos 3 testes reais: sem fatura, fatura única e múltiplas. Ele confirma presença/tamanho dos campos sem registrar token ou baixar pagamento.
+      </p>
     </div>
   );
 }

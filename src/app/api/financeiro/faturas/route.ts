@@ -92,11 +92,26 @@ function buildResumo(items: Array<{ status: FinanceiroStatus }>) {
 }
 
 function toSafeFaturaResumo(fatura: IxcFatura) {
+  const linhaDigitavel = fatura.linha_digitavel || fatura.boleto || "";
+  const pix = fatura.pix_copia_cola || fatura.pix || "";
+  const link = fatura.link || fatura.gateway_link || "";
+
   return {
     id: fatura.id,
     valor: fatura.valor_aberto || fatura.valor || "",
     data_vencimento: fatura.data_vencimento || "",
+    data_emissao: fatura.data_emissao || "",
     status: fatura.status || fatura.status_cobranca || "",
+    status_cobranca: fatura.status_cobranca || "",
+    has_linha_digitavel: Boolean(linhaDigitavel),
+    has_pix: Boolean(pix),
+    has_link: Boolean(link),
+    field_lengths: {
+      linha_digitavel: linhaDigitavel.length,
+      pix_copia_cola: pix.length,
+      link: link.length,
+      pix_txid: (fatura.pix_txid || "").length,
+    },
   };
 }
 
