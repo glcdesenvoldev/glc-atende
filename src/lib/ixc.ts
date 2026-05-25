@@ -118,7 +118,11 @@ export interface IxcCliente {
   telefone_celular?: string;
   fone_celular: string;
   email: string;
-  status: string;
+  status?: string;
+  ativo?: string;
+  status_cliente?: string;
+  bloqueado?: string;
+  cnpj_cpf?: string;
   endereco: string;
   numero?: string;
   bairro?: string;

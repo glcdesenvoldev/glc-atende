@@ -81,6 +81,7 @@ type ClienteBusca = {
   bairro: string;
   cidade: string;
   telefone_final: string;
+  documento_final?: string;
 };
 
 type AuditoriaFinanceira = {
@@ -103,6 +104,7 @@ export default function FinanceiroPage() {
   const [ids, setIds] = useState("");
   const [buscaCliente, setBuscaCliente] = useState("");
   const [clientes, setClientes] = useState<ClienteBusca[]>([]);
+  const [clienteSelecionado, setClienteSelecionado] = useState<ClienteBusca | null>(null);
   const [loadingBusca, setLoadingBusca] = useState(false);
   const [erroBusca, setErroBusca] = useState("");
   const [loading, setLoading] = useState(false);
@@ -212,6 +214,7 @@ export default function FinanceiroPage() {
   }
 
   async function consultarCliente(cliente: ClienteBusca) {
+    setClienteSelecionado(cliente);
     setClientes([cliente]);
     setIds(cliente.id);
     setBuscaCliente(cliente.nome || cliente.id);
@@ -308,6 +311,7 @@ export default function FinanceiroPage() {
                     </span>
                     <span>• {cliente.bairro || "bairro -"} / {cliente.cidade || "cidade -"}</span>
                     {cliente.telefone_final ? <span>• Tel. {cliente.telefone_final}</span> : null}
+                    {cliente.documento_final ? <span>• CPF/CNPJ {cliente.documento_final}</span> : null}
                   </div>
                 </div>
                 <button
@@ -328,26 +332,57 @@ export default function FinanceiroPage() {
           <Lock className="w-4 h-4 shrink-0" />
           <span>Modo seguro: envio externo, baixa financeira, renegociação e alteração no IXC continuam bloqueados sem aprovação humana.</span>
         </div>
-        <label className="block text-sm font-medium text-[#CBD5E1]">
-          IDs dos clientes
-          <textarea
-            value={ids}
-            onChange={(e) => setIds(e.target.value)}
-            placeholder="Ex.: 12345, 67890 ou um ID por linha"
-            className="mt-2 min-h-28 w-full rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-3 text-sm text-white placeholder-[#94A3B8]/60 focus:outline-none focus:border-[#14B8A6]"
-          />
-        </label>
+        {clienteSelecionado ? (
+          <div className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-4 space-y-2">
+            <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-[#94A3B8]">Cliente selecionado</p>
+                <p className="mt-1 font-semibold">{clienteSelecionado.nome}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#94A3B8]">
+                  <span className={`rounded-full border px-2 py-0.5 font-medium ${clienteStatusClass(clienteSelecionado.status)}`}>
+                    {clienteStatusLabel(clienteSelecionado.status)}
+                  </span>
+                  <span>• {clienteSelecionado.bairro || "bairro -"} / {clienteSelecionado.cidade || "cidade -"}</span>
+                  {clienteSelecionado.telefone_final ? <span>• Tel. {clienteSelecionado.telefone_final}</span> : null}
+                  {clienteSelecionado.documento_final ? <span>• CPF/CNPJ {clienteSelecionado.documento_final}</span> : null}
+                </div>
+              </div>
+              <button
+                onClick={() => { setClienteSelecionado(null); setIds(""); setData(null); setError(""); }}
+                className="rounded-lg bg-[#1E3050] border border-[#2A4060] px-3 py-2 text-xs text-[#CBD5E1] hover:text-white"
+              >
+                Trocar cliente
+              </button>
+            </div>
+            <p className="text-xs text-emerald-200 bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
+              Conferência recomendada: antes de copiar boleto/PIX, peça para o cliente confirmar nome completo e CPF/CNPJ. O ID fica oculto para o atendente porque a consulta já foi feita pelo cliente selecionado.
+            </p>
+          </div>
+        ) : (
+          <details className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-4">
+            <summary className="cursor-pointer text-sm font-medium text-[#CBD5E1]">Consulta avançada por ID</summary>
+            <label className="mt-3 block text-sm font-medium text-[#CBD5E1]">
+              IDs dos clientes
+              <textarea
+                value={ids}
+                onChange={(e) => setIds(e.target.value)}
+                placeholder="Ex.: 12345, 67890 ou um ID por linha"
+                className="mt-2 min-h-24 w-full rounded-xl bg-[#0D1B2A] border border-[#2A4060] px-4 py-3 text-sm text-white placeholder-[#94A3B8]/60 focus:outline-none focus:border-[#14B8A6]"
+              />
+            </label>
+          </details>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={consultar}
-            disabled={loading || cleanIds.length === 0}
+            disabled={loading || cleanIds.length === 0 || Boolean(clienteSelecionado)}
             className="inline-flex items-center gap-2 rounded-xl bg-[#F97316] hover:bg-[#ea6c0c] disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2 text-sm font-semibold"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-            Consultar faturas
+            {clienteSelecionado ? "Cliente já consultado" : "Consultar faturas"}
           </button>
           <button
-            onClick={() => { setIds(""); setData(null); setError(""); }}
+            onClick={() => { setIds(""); setClienteSelecionado(null); setData(null); setError(""); }}
             className="inline-flex items-center gap-2 rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-sm text-[#CBD5E1] hover:text-white"
           >
             <RefreshCw className="w-4 h-4" />
@@ -1008,8 +1043,8 @@ function statusAprovacao(status: "pending" | "approved" | "rejected" | "manual_s
 
 function clienteStatusLabel(status: string) {
   const normalized = String(status || "").trim().toUpperCase();
-  if (["A", "ATIVO", "ACTIVE"].includes(normalized)) return "Ativo";
-  if (["I", "INATIVO", "INACTIVE", "D", "DESATIVADO", "DESATIVADA"].includes(normalized)) return "Desativado";
+  if (["A", "ATIVO", "ACTIVE", "S", "SIM", "1", "TRUE"].includes(normalized)) return "Ativo";
+  if (["I", "INATIVO", "INACTIVE", "D", "DESATIVADO", "DESATIVADA", "N", "NAO", "NÃO", "0", "FALSE"].includes(normalized)) return "Desativado";
   if (["B", "BLOQUEADO", "BLOQUEADA", "SUSPENSO", "SUSPENSA"].includes(normalized)) return "Bloqueado";
   if (["C", "CANCELADO", "CANCELADA"].includes(normalized)) return "Cancelado";
   return status || "Não informado";

@@ -26,15 +26,29 @@ function toSafeClienteResumo(cliente: IxcCliente) {
   return {
     id: cliente.id,
     nome: cliente.razao || cliente.fantasia || "Cliente sem nome",
-    status: cliente.status || "",
+    status: resolveClienteStatus(cliente),
     bairro: cliente.bairro || "",
     cidade: cliente.cidade || "",
     telefone_final: maskPhone(cliente.telefone_celular || cliente.fone_celular || cliente.fone || ""),
+    documento_final: maskDocument(cliente.cnpj_cpf || ""),
   };
+}
+
+function resolveClienteStatus(cliente: IxcCliente) {
+  const blocked = String(cliente.bloqueado || "").trim().toUpperCase();
+  if (["S", "SIM", "B", "BLOQUEADO", "BLOQUEADA"].includes(blocked)) return "BLOQUEADO";
+
+  return cliente.status || cliente.status_cliente || cliente.ativo || "";
 }
 
 function maskPhone(phone: string) {
   const digits = phone.replace(/\D/g, "");
+  if (digits.length < 4) return "";
+  return `***${digits.slice(-4)}`;
+}
+
+function maskDocument(document: string) {
+  const digits = document.replace(/\D/g, "");
   if (digits.length < 4) return "";
   return `***${digits.slice(-4)}`;
 }
