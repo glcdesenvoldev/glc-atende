@@ -514,8 +514,13 @@ export default function FinanceiroPage() {
             <h2 className="text-lg font-semibold">Auditoria financeira recente</h2>
             <p className="text-xs text-[#94A3B8] mt-1">Rastro interno das solicitações, aprovações, rejeições e marcações de envio manual. Dados sensíveis continuam fora do log.</p>
           </div>
-          <button onClick={carregarAuditoria} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white">Atualizar auditoria</button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={carregarAuditoria} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white">Atualizar auditoria</button>
+            <button onClick={() => exportAuditCsv(auditoria)} disabled={auditoria.length === 0} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white disabled:opacity-40">Exportar CSV</button>
+            <button onClick={() => exportAuditJson(auditoria)} disabled={auditoria.length === 0} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white disabled:opacity-40">Exportar JSON</button>
+          </div>
         </div>
+        {auditoria.length > 0 ? <AuditSummary events={auditoria} /> : null}
         {auditoria.length === 0 ? (
           <p className="text-sm text-[#94A3B8]">Nenhum evento financeiro auditado ainda.</p>
         ) : (
@@ -556,6 +561,35 @@ export default function FinanceiroPage() {
 
 
 
+
+function AuditSummary({ events }: { events: AuditoriaFinanceira[] }) {
+  const summary = events.reduce((acc, event) => {
+    if (event.action === "finance_approval_create") acc.created += 1;
+    else if (event.action === "finance_approval_decide" && event.status === "approved") acc.approved += 1;
+    else if (event.action === "finance_approval_decide" && event.status === "rejected") acc.rejected += 1;
+    else if (event.action === "finance_approval_manual_sent") acc.manualSent += 1;
+    return acc;
+  }, { created: 0, approved: 0, rejected: 0, manualSent: 0 });
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      <AuditMiniCard label="Criadas" value={summary.created} />
+      <AuditMiniCard label="Aprovadas" value={summary.approved} />
+      <AuditMiniCard label="Rejeitadas" value={summary.rejected} />
+      <AuditMiniCard label="Envio manual" value={summary.manualSent} />
+    </div>
+  );
+}
+
+function AuditMiniCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-[#2A4060] bg-[#0F2744] p-3">
+      <p className="text-[11px] text-[#94A3B8]">Auditoria recente</p>
+      <p className="mt-1 text-sm font-semibold text-[#CBD5E1]">{label}</p>
+      <p className="mt-1 text-2xl font-bold text-white">{value}</p>
+    </div>
+  );
+}
 
 function buildApprovalRiskSummary(aprovacoes: AprovacaoEnvio[]) {
   return aprovacoes.reduce((acc, aprovacao) => {
@@ -651,6 +685,25 @@ function ApprovalSummaryCards({ summary }: { summary: ReturnType<typeof buildApp
 
 function formatMoneyNumber(value: number) {
   return value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function exportAuditCsv(events: AuditoriaFinanceira[]) {
+  const rows = events.map((event) => ({
+    data: event.ts,
+    evento: auditActionLabel(event.action),
+    acao: event.action,
+    status: event.status,
+    cliente: event.clientId,
+    fatura: event.faturaId,
+    protocolo: event.id,
+  }));
+  const headers = Object.keys(rows[0] || { data: "", evento: "", acao: "", status: "", cliente: "", fatura: "", protocolo: "" });
+  const csv = [headers.join(","), ...rows.map((row) => headers.map((header) => csvCell(row[header as keyof typeof row])).join(","))].join("\n");
+  downloadTextFile(`glc-auditoria-financeira-${dateStamp()}.csv`, csv, "text/csv;charset=utf-8");
+}
+
+function exportAuditJson(events: AuditoriaFinanceira[]) {
+  downloadTextFile(`glc-auditoria-financeira-${dateStamp()}.json`, JSON.stringify({ exportedAt: new Date().toISOString(), total: events.length, items: events }, null, 2), "application/json;charset=utf-8");
 }
 
 function exportApprovalsCsv(aprovacoes: AprovacaoEnvio[]) {
