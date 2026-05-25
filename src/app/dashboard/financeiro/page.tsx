@@ -105,6 +105,7 @@ type ReguaPreviewItem = {
   hasPix?: boolean;
   hasLinhaDigitavel?: boolean;
   hasLink?: boolean;
+  messagePreview?: string;
 };
 
 type ReguaPreviewResponse = {
@@ -688,6 +689,7 @@ function ReguaPreviewPanel({ preview, loading, error }: { preview: ReguaPreviewR
                 </div>
                 <p className="mt-2 text-xs text-[#CBD5E1]">{item.motivo}</p>
                 <p className="mt-1 text-[11px] text-[#94A3B8]">Dados disponíveis: PIX {item.hasPix ? "sim" : "não"} · linha digitável {item.hasLinhaDigitavel ? "sim" : "não"} · link {item.hasLink ? "sim" : "não"}</p>
+                {item.messagePreview ? <CopyBlock label="Prévia da mensagem da régua (não enviada)" value={item.messagePreview} /> : null}
               </div>
             ))}
           </div>
