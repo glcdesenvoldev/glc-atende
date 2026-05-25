@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, CircleDollarSign, Copy, FileWarning, LayoutDashboard, Loader2, Lock, RefreshCw, Search, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, CircleDollarSign, Copy, FileWarning, LayoutDashboard, Loader2, Lock, QrCode, RefreshCw, Search, ShieldCheck, XCircle } from "lucide-react";
 
 type Status = "segura" | "multiplas" | "sem_fatura" | "indisponivel";
 
@@ -861,7 +861,12 @@ function FaturaSegura({ idCliente, fatura, onApprovalCreated }: { idCliente: str
       </div>
       <IxcValidationPanel fatura={fatura} segura />
       {fatura.linha_digitavel ? <CopyBlock label="Linha digitável" value={fatura.linha_digitavel} /> : null}
-      {fatura.pix_copia_cola ? <CopyBlock label="PIX copia-e-cola" value={fatura.pix_copia_cola} /> : null}
+      {fatura.pix_copia_cola ? (
+        <>
+          <CopyBlock label="PIX copia-e-cola" value={fatura.pix_copia_cola} />
+          <PixQrCode payload={fatura.pix_copia_cola} />
+        </>
+      ) : null}
       {fatura.link ? <CopyBlock label="Link/PDF" value={fatura.link} /> : null}
       <div className="flex flex-wrap items-center gap-3">
         <button
@@ -875,6 +880,30 @@ function FaturaSegura({ idCliente, fatura, onApprovalCreated }: { idCliente: str
       </div>
       <CopyBlock label="Mensagem pronta para cliente — copiar manualmente somente após conferência" value={mensagemClienteFatura(fatura)} />
       <p className="text-xs text-amber-200">Conferir no IXC antes de enviar ao cliente. Aprovação humana obrigatória. O sistema apenas prepara o texto; não envia automaticamente.</p>
+    </div>
+  );
+}
+
+
+function PixQrCode({ payload }: { payload: string }) {
+  const src = `/api/financeiro/pix-qrcode?payload=${encodeURIComponent(payload)}`;
+
+  return (
+    <div className="rounded-lg bg-[#0D1B2A] border border-[#2A4060] p-3 space-y-3">
+      <div className="flex items-center gap-2 text-sm font-semibold text-[#CBD5E1]">
+        <QrCode className="w-4 h-4 text-[#14B8A6]" />
+        QR Code PIX — conferência interna
+      </div>
+      <div className="flex flex-col md:flex-row gap-3 md:items-center">
+        <div className="rounded-xl bg-white p-3 w-fit">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt="QR Code PIX gerado a partir do copia-e-cola" className="h-40 w-40" />
+        </div>
+        <div className="text-xs text-[#94A3B8] space-y-2 max-w-xl">
+          <p>Gerado localmente a partir do PIX copia-e-cola retornado pelo IXC.</p>
+          <p className="text-amber-200">Uso interno: conferir cliente, valor e vencimento antes de qualquer envio manual. O sistema não envia WhatsApp, não baixa pagamento e não altera o IXC.</p>
+        </div>
+      </div>
     </div>
   );
 }
