@@ -1,13 +1,21 @@
 # Política — Régua segura de cobrança WhatsApp GLC Atende
 
-Status: camada técnica pronta com envio real bloqueado por configuração até aprovação explícita do número definitivo.
+Status: modo backup/contingência. A camada técnica existe, mas envio real para cliente continua bloqueado; no momento a Mundiale segue como canal principal de atendimento/cobrança.
 
 ## Responsabilidade por canal
 
 - **E-mail:** permanece a cargo do IXC, por ser a fonte oficial da cobrança, boleto, baixa e histórico financeiro.
-- **WhatsApp:** fica a cargo do GLC Atende/Evolution API, com travas de segurança, opt-out, anti-duplicidade e auditoria interna.
+- **WhatsApp principal ao cliente:** Mundiale, enquanto continuar trazendo as informações de boleto/fatura corretamente.
+- **WhatsApp pelo GLC Atende/Evolution:** somente backup/contingência, com travas de segurança, opt-out, anti-duplicidade e auditoria interna, caso a Mundiale não entregue as informações necessárias.
 - **Fonte financeira oficial:** sempre IXC.
 - **Auditoria operacional da régua:** GLC Atende.
+
+
+## Modo operacional atual — backup da Mundiale
+
+- O GLC Atende não deve enviar cobrança ao cliente enquanto a Mundiale estiver operando corretamente.
+- O GLC Atende deve funcionar como consulta segura, conferência, auditoria e plano B para casos em que a Mundiale não traga boleto/fatura/dados de pagamento ao cliente.
+- Qualquer ativação de envio real pelo GLC Atende exige nova aprovação explícita de Gilson e validação do número definitivo.
 
 ## Régua sugerida
 
@@ -51,5 +59,6 @@ Status: camada técnica pronta com envio real bloqueado por configuração até 
 ## Situação atual
 
 - Permitido: preview interno, validação de envio bloqueado, dry-run, opt-out/exceções, anti-duplicidade e auditoria.
-- Bloqueado: disparo real para WhatsApp do cliente até liberação explícita da flag e número definitivo.
+- Bloqueado: disparo real para WhatsApp do cliente enquanto a Mundiale for o canal principal e até liberação explícita da flag e número definitivo.
 - E-mail: manter pelo IXC; o GLC Atende não deve duplicar envio de e-mail nesta fase.
+- Uso atual recomendado: backup operacional para consulta/apoio quando a Mundiale não trouxer informações de boleto/fatura.
