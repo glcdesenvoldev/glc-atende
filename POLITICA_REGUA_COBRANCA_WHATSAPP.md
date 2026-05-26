@@ -1,6 +1,13 @@
 # Política — Régua segura de cobrança WhatsApp GLC Atende
 
-Status: planejamento seguro. Envio automático real continua bloqueado até aprovação explícita.
+Status: camada técnica pronta com envio real bloqueado por configuração até aprovação explícita do número definitivo.
+
+## Responsabilidade por canal
+
+- **E-mail:** permanece a cargo do IXC, por ser a fonte oficial da cobrança, boleto, baixa e histórico financeiro.
+- **WhatsApp:** fica a cargo do GLC Atende/Evolution API, com travas de segurança, opt-out, anti-duplicidade e auditoria interna.
+- **Fonte financeira oficial:** sempre IXC.
+- **Auditoria operacional da régua:** GLC Atende.
 
 ## Régua sugerida
 
@@ -21,16 +28,28 @@ Status: planejamento seguro. Envio automático real continua bloqueado até apro
 
 ## Travamentos obrigatórios antes de envio automático
 
+- Não enviar se o envio real estiver bloqueado por configuração (`BILLING_CADENCE_WHATSAPP_ENABLED` diferente de `1`).
 - Não enviar se houver múltiplas faturas abertas sem escolha segura.
-- Não enviar fora de horário comercial definido.
+- Não enviar fora da etapa D-5, D0 ou D+3.
 - Não enviar para cliente sem telefone válido/WhatsApp confirmado.
-- Não enviar se cliente estiver em lista de exceção/manual.
+- Não enviar se cliente estiver em lista de exceção/opt-out/manual.
+- Não enviar etapa duplicada para o mesmo cliente + fatura + canal.
 - Não enviar PIX/boleto sem conferir que a fatura segue aberta no IXC.
 - Registrar auditoria: cliente ID, fatura ID, etapa da régua, data/hora, resultado e canal.
 - Permitir opt-out/remoção da régua quando solicitado.
 - Não registrar CPF completo, token, PIX copia-e-cola completo ou linha digitável completa em logs de auditoria geral.
 
+## Configuração de liberação futura
+
+- `EVOLUTION_API_URL`: URL da Evolution API.
+- `EVOLUTION_API_KEY`: chave da Evolution API.
+- `EVOLUTION_INSTANCE`: instância padrão.
+- `EVOLUTION_BILLING_INSTANCE`: instância opcional exclusiva para cobrança; se vazia, usa `EVOLUTION_INSTANCE`.
+- `BILLING_CADENCE_WHATSAPP_ENABLED=0`: padrão seguro, sem envio real.
+- `BILLING_CADENCE_WHATSAPP_ENABLED=1`: só configurar após aprovação explícita de Gilson do número definitivo.
+
 ## Situação atual
 
-- Modo permitido: preview interno, resumo, aprovação humana e cópia manual.
-- Modo bloqueado: disparo automático para WhatsApp do cliente.
+- Permitido: preview interno, validação de envio bloqueado, dry-run, opt-out/exceções, anti-duplicidade e auditoria.
+- Bloqueado: disparo real para WhatsApp do cliente até liberação explícita da flag e número definitivo.
+- E-mail: manter pelo IXC; o GLC Atende não deve duplicar envio de e-mail nesta fase.
