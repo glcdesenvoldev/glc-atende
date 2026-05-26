@@ -117,6 +117,36 @@ type ReguaPreviewResponse = {
   items: ReguaPreviewItem[];
 };
 
+
+type ReguaHistoricoItem = {
+  id: string;
+  idCliente: string;
+  faturaId: string;
+  stage: "D-5" | "D0" | "D+3";
+  channel: "whatsapp";
+  status: "dry_run" | "sent" | "blocked" | "failed";
+  createdAt: string;
+  createdBy: string;
+  reason?: string;
+};
+
+type ReguaExcecaoItem = {
+  id: string;
+  idCliente: string;
+  status: "active" | "inactive";
+  reason: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+};
+
+type ReguaControleResponse = {
+  ok: boolean;
+  history: ReguaHistoricoItem[];
+  exceptions: ReguaExcecaoItem[];
+  safety: string;
+};
+
 const statusConfig: Record<Status, { label: string; cls: string; icon: React.ReactNode }> = {
   segura: { label: "Fatura segura", cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300", icon: <ShieldCheck className="w-4 h-4" /> },
   multiplas: { label: "Bloqueado: múltiplas", cls: "border-amber-500/30 bg-amber-500/10 text-amber-300", icon: <FileWarning className="w-4 h-4" /> },
@@ -143,6 +173,9 @@ export default function FinanceiroPage() {
   const [reguaPreview, setReguaPreview] = useState<ReguaPreviewResponse | null>(null);
   const [loadingRegua, setLoadingRegua] = useState(false);
   const [reguaError, setReguaError] = useState("");
+  const [reguaControle, setReguaControle] = useState<ReguaControleResponse | null>(null);
+  const [loadingReguaControle, setLoadingReguaControle] = useState(false);
+  const [reguaControleMsg, setReguaControleMsg] = useState("");
 
   const cleanIds = useMemo(() => ids.split(/[\s,;]+/).map((id) => id.trim()).filter(Boolean), [ids]);
   const approvalCounts = useMemo(() => countApprovals(aprovacoes), [aprovacoes]);
@@ -153,6 +186,7 @@ export default function FinanceiroPage() {
   useEffect(() => {
     carregarAprovacoes();
     carregarAuditoria();
+    carregarReguaControle();
   }, []);
 
   async function carregarAprovacoes() {
@@ -169,9 +203,76 @@ export default function FinanceiroPage() {
     if (json.ok) setAuditoria(json.items || []);
   }
 
+  async function carregarReguaControle() {
+    setLoadingReguaControle(true);
+    try {
+      const res = await fetch("/api/financeiro/regua-controle?limit=20");
+      if (!res.ok) return;
+      const json = await res.json();
+      if (json.ok) setReguaControle(json);
+    } finally {
+      setLoadingReguaControle(false);
+    }
+  }
+
+  async function registrarDryRunRegua(item: ReguaPreviewItem) {
+    if (!item.faturaId || !item.etapa) return;
+    const ok = window.confirm("Registrar esta etapa como dry-run? Isso ativa a trava anti-duplicidade para cliente/fatura/etapa, mas NÃO envia WhatsApp.");
+    if (!ok) return;
+    setReguaControleMsg("");
+    const res = await fetch("/api/financeiro/regua-controle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "record_dry_run", idCliente: item.idCliente, faturaId: item.faturaId, stage: item.etapa, reason: "Dry-run registrado pelo dashboard antes de envio real" }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) {
+      setReguaControleMsg(json.error || "Falha ao registrar dry-run da régua.");
+      return;
+    }
+    setReguaControleMsg("Dry-run registrado. Anti-duplicidade ativada para esta etapa. Nenhum WhatsApp foi enviado.");
+    await carregarReguaControle();
+    if (ids) await consultarReguaPreview(ids);
+  }
+
+  async function adicionarExcecaoRegua(idCliente: string, reason: string) {
+    setReguaControleMsg("");
+    const res = await fetch("/api/financeiro/regua-controle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "add_exception", idCliente, reason }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) {
+      setReguaControleMsg(json.error || "Falha ao adicionar exceção.");
+      return;
+    }
+    setReguaControleMsg(`Cliente #${idCliente} entrou na lista de exceção/opt-out da régua.`);
+    await carregarReguaControle();
+    if (ids) await consultarReguaPreview(ids);
+  }
+
+  async function removerExcecaoRegua(idCliente: string) {
+    setReguaControleMsg("");
+    const res = await fetch("/api/financeiro/regua-controle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "remove_exception", idCliente }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) {
+      setReguaControleMsg(json.error || "Falha ao remover exceção.");
+      return;
+    }
+    setReguaControleMsg(`Exceção ativa do cliente #${idCliente} removida.`);
+    await carregarReguaControle();
+    if (ids) await consultarReguaPreview(ids);
+  }
+
   async function atualizarFinanceiroInterno() {
     await carregarAprovacoes();
     await carregarAuditoria();
+    await carregarReguaControle();
   }
 
   async function decidirAprovacao(id: string, action: "approve" | "reject" | "manual_sent", noteOverride?: string) {
@@ -318,7 +419,8 @@ export default function FinanceiroPage() {
 
       <BillingCadencePreview />
 
-      <ReguaPreviewPanel preview={reguaPreview} loading={loadingRegua} error={reguaError} />
+      <ReguaPreviewPanel preview={reguaPreview} loading={loadingRegua} error={reguaError} onRecordDryRun={registrarDryRunRegua} />
+      <ReguaControlePanel controle={reguaControle} loading={loadingReguaControle} message={reguaControleMsg} currentIds={cleanIds} onRefresh={carregarReguaControle} onAddException={adicionarExcecaoRegua} onRemoveException={removerExcecaoRegua} />
 
       <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
         <div>
@@ -650,7 +752,7 @@ function buildApprovalRiskSummary(aprovacoes: AprovacaoEnvio[]) {
   }, { overdue: 0, today: 0, nextThreeDays: 0 });
 }
 
-function ReguaPreviewPanel({ preview, loading, error }: { preview: ReguaPreviewResponse | null; loading: boolean; error: string }) {
+function ReguaPreviewPanel({ preview, loading, error, onRecordDryRun }: { preview: ReguaPreviewResponse | null; loading: boolean; error: string; onRecordDryRun: (item: ReguaPreviewItem) => void }) {
   return (
     <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
@@ -697,6 +799,9 @@ function ReguaPreviewPanel({ preview, loading, error }: { preview: ReguaPreviewR
                 ) : null}
                 <p className="mt-1 text-[11px] text-[#94A3B8]">Dados disponíveis: PIX {item.hasPix ? "sim" : "não"} · linha digitável {item.hasLinhaDigitavel ? "sim" : "não"} · link {item.hasLink ? "sim" : "não"}</p>
                 {item.messagePreview ? <CopyBlock label="Prévia da mensagem da régua (não enviada)" value={item.messagePreview} /> : null}
+                {item.status === "ready" && item.faturaId && item.etapa ? (
+                  <button onClick={() => onRecordDryRun(item)} className="mt-2 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-500">Registrar dry-run / travar duplicidade</button>
+                ) : null}
               </div>
             ))}
           </div>
@@ -705,6 +810,107 @@ function ReguaPreviewPanel({ preview, loading, error }: { preview: ReguaPreviewR
       )}
     </section>
   );
+}
+
+function ReguaControlePanel({
+  controle,
+  loading,
+  message,
+  currentIds,
+  onRefresh,
+  onAddException,
+  onRemoveException,
+}: {
+  controle: ReguaControleResponse | null;
+  loading: boolean;
+  message: string;
+  currentIds: string[];
+  onRefresh: () => void;
+  onAddException: (idCliente: string, reason: string) => void;
+  onRemoveException: (idCliente: string) => void;
+}) {
+  const activeExceptions = (controle?.exceptions || []).filter((item) => item.status === "active");
+  const recentHistory = controle?.history || [];
+  const [reason, setReason] = useState("Opt-out/pausa solicitada pelo cliente ou definida pela operação");
+
+  return (
+    <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Controle da régua: opt-out, anti-duplicidade e histórico</h2>
+          <p className="text-xs text-[#94A3B8] mt-1">Camada de segurança antes de qualquer envio real. Registra dry-run, bloqueia duplicidade por cliente/fatura/etapa e mantém lista de exceções.</p>
+        </div>
+        <button onClick={onRefresh} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white">{loading ? "Atualizando..." : "Atualizar controle"}</button>
+      </div>
+
+      {message ? <div className="rounded-xl border border-sky-500/20 bg-sky-500/10 p-3 text-xs text-sky-100">{message}</div> : null}
+
+      <div className="rounded-xl border border-[#2A4060] bg-[#0F2744] p-3 space-y-3">
+        <div className="flex flex-col md:flex-row gap-2">
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            className="flex-1 rounded-lg bg-[#0D1B2A] border border-[#2A4060] px-3 py-2 text-xs text-white placeholder-[#94A3B8]/60 focus:outline-none focus:border-[#14B8A6]"
+            placeholder="Motivo da exceção/opt-out"
+          />
+          <button
+            onClick={() => currentIds[0] ? onAddException(currentIds[0], reason) : undefined}
+            disabled={!currentIds[0]}
+            className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-40"
+          >
+            Pausar 1º cliente consultado
+          </button>
+        </div>
+        <p className="text-[11px] text-[#94A3B8]">Para pausar um cliente, consulte ou digite o ID dele no campo principal acima. A exceção impede que ele apareça como elegível na régua.</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="rounded-xl border border-[#2A4060] bg-[#0F2744] p-3">
+          <p className="text-sm font-semibold text-white">Exceções/opt-out ativos</p>
+          {activeExceptions.length === 0 ? (
+            <p className="mt-2 text-xs text-[#94A3B8]">Nenhuma exceção ativa.</p>
+          ) : (
+            <div className="mt-2 space-y-2">
+              {activeExceptions.slice(0, 8).map((item) => (
+                <div key={item.id} className="rounded-lg bg-[#0D1B2A] border border-[#2A4060] p-2 text-xs text-[#CBD5E1]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Cliente #{item.idCliente}</span>
+                    <button onClick={() => onRemoveException(item.idCliente)} className="text-sky-200 hover:text-white">reativar</button>
+                  </div>
+                  <p className="mt-1 text-[#94A3B8]">{item.reason}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-[#2A4060] bg-[#0F2744] p-3">
+          <p className="text-sm font-semibold text-white">Histórico recente da régua</p>
+          {recentHistory.length === 0 ? (
+            <p className="mt-2 text-xs text-[#94A3B8]">Nenhum evento registrado ainda.</p>
+          ) : (
+            <div className="mt-2 space-y-2">
+              {recentHistory.slice(0, 8).map((item) => (
+                <div key={item.id} className="rounded-lg bg-[#0D1B2A] border border-[#2A4060] p-2 text-xs text-[#CBD5E1]">
+                  <p>Cliente #{item.idCliente} · Fatura #{item.faturaId} · {item.stage} · {reguaStatusLabel(item.status)}</p>
+                  <p className="mt-1 text-[#94A3B8]">{formatDate(item.createdAt)} · {item.reason || "sem observação"}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <p className="text-xs text-emerald-200 bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3">{controle?.safety || "Controle interno. Não envia WhatsApp e não altera IXC."}</p>
+    </section>
+  );
+}
+
+function reguaStatusLabel(status: ReguaHistoricoItem["status"]) {
+  if (status === "dry_run") return "dry-run";
+  if (status === "sent") return "enviado";
+  if (status === "blocked") return "bloqueado";
+  return "falhou";
 }
 
 function ReguaMiniCard({ label, value, tone }: { label: string; value: string | number; tone?: "ready" | "blocked" }) {
