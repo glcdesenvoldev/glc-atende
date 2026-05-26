@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ixcApi, type IxcFatura } from "@/lib/ixc";
+import { getBillingCadenceGuard, type BillingCadenceGuard } from "@/lib/billing-cadence";
 
 const MAX_CLIENTES = 20;
 
@@ -19,6 +20,7 @@ type PreviewItem = {
   hasLinhaDigitavel?: boolean;
   hasLink?: boolean;
   messagePreview?: string;
+  guard?: { canProceed: boolean; alreadySent: boolean; exceptionActive: boolean; reasons: string[] };
 };
 
 export async function GET(request: NextRequest) {
@@ -48,12 +50,12 @@ export async function GET(request: NextRequest) {
     }
 
     if (result.items.length > 1) {
-      const candidates = result.items.map((fatura) => toPreviewCandidate(idCliente, fatura, "Cliente possui múltiplas faturas abertas. Envio automático bloqueado; precisa conferência humana."));
+      const candidates = await Promise.all(result.items.map((fatura) => toPreviewCandidate(idCliente, fatura, "Cliente possui múltiplas faturas abertas. Envio automático bloqueado; precisa conferência humana.")));
       items.push(...candidates);
       continue;
     }
 
-    items.push(toPreviewCandidate(idCliente, result.items[0]));
+    items.push(await toPreviewCandidate(idCliente, result.items[0]));
   }
 
   return NextResponse.json({
@@ -76,7 +78,7 @@ function normalizeIds(value: string) {
   ));
 }
 
-function toPreviewCandidate(idCliente: string, fatura: IxcFatura, forcedBlockReason?: string): PreviewItem {
+async function toPreviewCandidate(idCliente: string, fatura: IxcFatura, forcedBlockReason?: string): Promise<PreviewItem> {
   const due = parseDueDate(fatura.data_vencimento || "");
   const diffDays = due ? diffFromToday(due) : null;
   const etapa = diffDays === null ? null : stageForDiff(diffDays);
@@ -84,23 +86,29 @@ function toPreviewCandidate(idCliente: string, fatura: IxcFatura, forcedBlockRea
   const pix = fatura.pix_copia_cola || fatura.pix || "";
   const link = fatura.link || fatura.gateway_link || "";
 
+  const guard = etapa ? await getBillingCadenceGuard({ idCliente, faturaId: fatura.id, stage: etapa }) : null;
+
   if (forcedBlockReason) {
-    return baseItem(idCliente, fatura, diffDays, etapa, "blocked", forcedBlockReason, pix, linhaDigitavel, link);
+    return baseItem(idCliente, fatura, diffDays, etapa, "blocked", forcedBlockReason, pix, linhaDigitavel, link, guard);
   }
 
   if (!due || diffDays === null) {
-    return baseItem(idCliente, fatura, diffDays, etapa, "blocked", "Vencimento inválido ou ausente. Régua bloqueada.", pix, linhaDigitavel, link);
+    return baseItem(idCliente, fatura, diffDays, etapa, "blocked", "Vencimento inválido ou ausente. Régua bloqueada.", pix, linhaDigitavel, link, guard);
   }
 
   if (!etapa) {
-    return baseItem(idCliente, fatura, diffDays, etapa, "blocked", "Fatura aberta, mas fora das etapas D-5, D0 ou D+3.", pix, linhaDigitavel, link);
+    return baseItem(idCliente, fatura, diffDays, etapa, "blocked", "Fatura aberta, mas fora das etapas D-5, D0 ou D+3.", pix, linhaDigitavel, link, guard);
   }
 
   if (!pix && !linhaDigitavel && !link) {
-    return baseItem(idCliente, fatura, diffDays, etapa, "blocked", "Fatura na etapa da régua, mas sem PIX, linha digitável ou link disponível.", pix, linhaDigitavel, link);
+    return baseItem(idCliente, fatura, diffDays, etapa, "blocked", "Fatura na etapa da régua, mas sem PIX, linha digitável ou link disponível.", pix, linhaDigitavel, link, guard);
   }
 
-  return baseItem(idCliente, fatura, diffDays, etapa, "ready", "Elegível para preview da régua. Envio automático ainda bloqueado por política.", pix, linhaDigitavel, link);
+  if (guard && !guard.canProceed) {
+    return baseItem(idCliente, fatura, diffDays, etapa, "blocked", guard.reasons.join(" "), pix, linhaDigitavel, link, guard);
+  }
+
+  return baseItem(idCliente, fatura, diffDays, etapa, "ready", "Elegível para preview da régua. Envio automático ainda bloqueado por política.", pix, linhaDigitavel, link, guard);
 }
 
 function baseItem(
@@ -112,7 +120,8 @@ function baseItem(
   motivo: string,
   pix: string,
   linhaDigitavel: string,
-  link: string
+  link: string,
+  guard?: BillingCadenceGuard | null
 ): PreviewItem {
   return {
     idCliente,
@@ -127,6 +136,7 @@ function baseItem(
     hasLinhaDigitavel: Boolean(linhaDigitavel),
     hasLink: Boolean(link),
     messagePreview: etapa && status === "ready" ? buildCadenceMessagePreview(etapa, { id: fatura.id, valor: fatura.valor_aberto || fatura.valor || "", dataVencimento: fatura.data_vencimento || "" }) : undefined,
+    guard: guard ? { canProceed: guard.canProceed, alreadySent: guard.alreadySent, exceptionActive: guard.exceptionActive, reasons: guard.reasons } : undefined,
   };
 }
 

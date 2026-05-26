@@ -106,6 +106,7 @@ type ReguaPreviewItem = {
   hasLinhaDigitavel?: boolean;
   hasLink?: boolean;
   messagePreview?: string;
+  guard?: { canProceed: boolean; alreadySent: boolean; exceptionActive: boolean; reasons: string[] };
 };
 
 type ReguaPreviewResponse = {
@@ -688,6 +689,12 @@ function ReguaPreviewPanel({ preview, loading, error }: { preview: ReguaPreviewR
                   </span>
                 </div>
                 <p className="mt-2 text-xs text-[#CBD5E1]">{item.motivo}</p>
+                {item.guard ? (
+                  <div className="mt-2 rounded-lg border border-[#2A4060] bg-[#0D1B2A] p-2 text-[11px] text-[#94A3B8]">
+                    <p>Anti-duplicidade: {item.guard.alreadySent ? "já existe registro para esta etapa" : "sem registro anterior"} · Exceção/opt-out: {item.guard.exceptionActive ? "ativo" : "não"}</p>
+                    {item.guard.reasons.length > 0 ? <p className="mt-1 text-amber-200">{item.guard.reasons.join(" ")}</p> : null}
+                  </div>
+                ) : null}
                 <p className="mt-1 text-[11px] text-[#94A3B8]">Dados disponíveis: PIX {item.hasPix ? "sim" : "não"} · linha digitável {item.hasLinhaDigitavel ? "sim" : "não"} · link {item.hasLink ? "sim" : "não"}</p>
                 {item.messagePreview ? <CopyBlock label="Prévia da mensagem da régua (não enviada)" value={item.messagePreview} /> : null}
               </div>
