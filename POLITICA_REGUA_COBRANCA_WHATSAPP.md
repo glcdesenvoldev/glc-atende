@@ -17,6 +17,14 @@ Status: modo backup/contingência. A camada técnica existe, mas envio real para
 - O GLC Atende deve funcionar como consulta segura, conferência, auditoria e plano B para casos em que a Mundiale não traga boleto/fatura/dados de pagamento ao cliente.
 - Qualquer ativação de envio real pelo GLC Atende exige nova aprovação explícita de Gilson e validação do número definitivo.
 
+
+## Direção estratégica futura
+
+- A Mundiale permanece como canal principal no curto prazo.
+- O objetivo futuro é aperfeiçoar o GLC Atende para substituir gradualmente a Mundiale e assumir o atendimento/cobrança com controle próprio.
+- A troca deve ser feita por fases: primeiro backup confiável, depois piloto interno, depois atendimento assistido, depois automações controladas e só por último substituição operacional completa.
+- A substituição só deve ocorrer quando o GLC Atende tiver estabilidade, auditoria, opt-out, histórico, integração IXC, WhatsApp oficial, monitoramento e plano de reversão.
+
 ## Régua sugerida
 
 1. **D-5 — 5 dias antes do vencimento**
