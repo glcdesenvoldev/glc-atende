@@ -45,6 +45,38 @@ export type BillingCadenceGuard = {
   exception?: BillingCadenceException;
 };
 
+export function buildBillingCadenceCustomerMessage(input: {
+  stage: BillingCadenceStage;
+  faturaId: string;
+  valor: string;
+  dataVencimento: string;
+}) {
+  const header = input.stage === "D-5"
+    ? "Olá! Passando para lembrar que sua fatura da GLC Internet vence em 5 dias."
+    : input.stage === "D0"
+      ? "Olá! Sua fatura da GLC Internet vence hoje."
+      : "Olá! Identificamos uma fatura da GLC Internet vencida há 3 dias.";
+
+  const footer = input.stage === "D+3"
+    ? "Se o pagamento já foi realizado, por favor desconsidere esta mensagem. Caso precise de ajuda, fale com nosso atendimento."
+    : "Se já realizou o pagamento, por favor desconsidere esta mensagem. Qualquer dúvida, estamos à disposição.";
+
+  return [
+    header,
+    "",
+    `Fatura: ${input.faturaId || "-"}`,
+    `Valor: ${formatBillingMoney(input.valor)}`,
+    `Vencimento: ${input.dataVencimento || "-"}`,
+    "",
+    "Para sua segurança, confira os dados antes de pagar e use apenas os canais oficiais da GLC Internet.",
+    footer,
+  ].join("\n");
+}
+
+function formatBillingMoney(value: string) {
+  return value ? `R$ ${value}` : "-";
+}
+
 export async function getBillingCadenceGuard(input: { idCliente: string; faturaId?: string; stage?: BillingCadenceStage }): Promise<BillingCadenceGuard> {
   const [history, exceptions] = await Promise.all([readHistory(), readExceptions()]);
   const exception = exceptions.find((item) => item.idCliente === input.idCliente && item.status === "active");

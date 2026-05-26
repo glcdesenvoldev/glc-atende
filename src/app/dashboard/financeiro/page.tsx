@@ -144,6 +144,12 @@ type ReguaControleResponse = {
   ok: boolean;
   history: ReguaHistoricoItem[];
   exceptions: ReguaExcecaoItem[];
+  dispatch?: {
+    whatsappEnabled: boolean;
+    evolutionConfigured: boolean;
+    instanceConfigured: boolean;
+    safety: string;
+  };
   safety: string;
 };
 
@@ -231,6 +237,30 @@ export default function FinanceiroPage() {
       return;
     }
     setReguaControleMsg("Dry-run registrado. Anti-duplicidade ativada para esta etapa. Nenhum WhatsApp foi enviado.");
+    await carregarReguaControle();
+    if (ids) await consultarReguaPreview(ids);
+  }
+
+  async function acionarEnvioWhatsappRegua(item: ReguaPreviewItem) {
+    if (!item.faturaId || !item.etapa) return;
+    const enabled = Boolean(reguaControle?.dispatch?.whatsappEnabled);
+    const confirmText = enabled
+      ? "Confirmar envio REAL pelo WhatsApp? O sistema vai revalidar IXC, telefone, opt-out e anti-duplicidade antes de enviar."
+      : "Validar fluxo de envio? A configuração atual mantém o WhatsApp BLOQUEADO, então nenhuma mensagem será enviada.";
+    const ok = window.confirm(confirmText);
+    if (!ok) return;
+    setReguaControleMsg("");
+    const res = await fetch("/api/financeiro/regua-controle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "send_whatsapp", idCliente: item.idCliente, faturaId: item.faturaId, stage: item.etapa }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok && !json.blocked) {
+      setReguaControleMsg(json.error || json.reason || "Falha ao acionar envio da régua.");
+      return;
+    }
+    setReguaControleMsg(json.safety || json.reason || (json.ok ? "Envio registrado." : "Envio bloqueado com segurança."));
     await carregarReguaControle();
     if (ids) await consultarReguaPreview(ids);
   }
@@ -419,7 +449,7 @@ export default function FinanceiroPage() {
 
       <BillingCadencePreview />
 
-      <ReguaPreviewPanel preview={reguaPreview} loading={loadingRegua} error={reguaError} onRecordDryRun={registrarDryRunRegua} />
+      <ReguaPreviewPanel preview={reguaPreview} loading={loadingRegua} error={reguaError} dispatchEnabled={Boolean(reguaControle?.dispatch?.whatsappEnabled)} onRecordDryRun={registrarDryRunRegua} onDispatchWhatsApp={acionarEnvioWhatsappRegua} />
       <ReguaControlePanel controle={reguaControle} loading={loadingReguaControle} message={reguaControleMsg} currentIds={cleanIds} onRefresh={carregarReguaControle} onAddException={adicionarExcecaoRegua} onRemoveException={removerExcecaoRegua} />
 
       <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
@@ -752,7 +782,7 @@ function buildApprovalRiskSummary(aprovacoes: AprovacaoEnvio[]) {
   }, { overdue: 0, today: 0, nextThreeDays: 0 });
 }
 
-function ReguaPreviewPanel({ preview, loading, error, onRecordDryRun }: { preview: ReguaPreviewResponse | null; loading: boolean; error: string; onRecordDryRun: (item: ReguaPreviewItem) => void }) {
+function ReguaPreviewPanel({ preview, loading, error, dispatchEnabled, onRecordDryRun, onDispatchWhatsApp }: { preview: ReguaPreviewResponse | null; loading: boolean; error: string; dispatchEnabled: boolean; onRecordDryRun: (item: ReguaPreviewItem) => void; onDispatchWhatsApp: (item: ReguaPreviewItem) => void }) {
   return (
     <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
@@ -800,7 +830,12 @@ function ReguaPreviewPanel({ preview, loading, error, onRecordDryRun }: { previe
                 <p className="mt-1 text-[11px] text-[#94A3B8]">Dados disponíveis: PIX {item.hasPix ? "sim" : "não"} · linha digitável {item.hasLinhaDigitavel ? "sim" : "não"} · link {item.hasLink ? "sim" : "não"}</p>
                 {item.messagePreview ? <CopyBlock label="Prévia da mensagem da régua (não enviada)" value={item.messagePreview} /> : null}
                 {item.status === "ready" && item.faturaId && item.etapa ? (
-                  <button onClick={() => onRecordDryRun(item)} className="mt-2 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-500">Registrar dry-run / travar duplicidade</button>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button onClick={() => onRecordDryRun(item)} className="rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-500">Registrar dry-run / travar duplicidade</button>
+                    <button onClick={() => onDispatchWhatsApp(item)} className={`rounded-lg px-3 py-2 text-xs font-semibold text-white ${dispatchEnabled ? "bg-emerald-600 hover:bg-emerald-500" : "bg-amber-600 hover:bg-amber-500"}`}>
+                      {dispatchEnabled ? "Enviar WhatsApp validado" : "Validar envio WhatsApp bloqueado"}
+                    </button>
+                  </div>
                 ) : null}
               </div>
             ))}
@@ -844,6 +879,10 @@ function ReguaControlePanel({
       </div>
 
       {message ? <div className="rounded-xl border border-sky-500/20 bg-sky-500/10 p-3 text-xs text-sky-100">{message}</div> : null}
+
+      <div className={`rounded-xl border p-3 text-xs ${controle?.dispatch?.whatsappEnabled ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-100" : "border-amber-500/20 bg-amber-500/10 text-amber-100"}`}>
+        <b>Status do envio real:</b> {controle?.dispatch?.whatsappEnabled ? "liberado por configuração" : "bloqueado por configuração"}. {controle?.dispatch?.safety || "Aguardando leitura da configuração."}
+      </div>
 
       <div className="rounded-xl border border-[#2A4060] bg-[#0F2744] p-3 space-y-3">
         <div className="flex flex-col md:flex-row gap-2">

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ixcApi, type IxcFatura } from "@/lib/ixc";
-import { getBillingCadenceGuard, type BillingCadenceGuard } from "@/lib/billing-cadence";
+import { buildBillingCadenceCustomerMessage, getBillingCadenceGuard, type BillingCadenceGuard } from "@/lib/billing-cadence";
 
 const MAX_CLIENTES = 20;
 
@@ -141,30 +141,7 @@ function baseItem(
 }
 
 function buildCadenceMessagePreview(etapa: CadenceStage, fatura: { id: string; valor: string; dataVencimento: string }) {
-  const header = etapa === "D-5"
-    ? "Olá! Passando para lembrar que sua fatura da GLC Internet vence em 5 dias."
-    : etapa === "D0"
-      ? "Olá! Sua fatura da GLC Internet vence hoje."
-      : "Olá! Identificamos uma fatura da GLC Internet vencida há 3 dias.";
-
-  const footer = etapa === "D+3"
-    ? "Se o pagamento já foi realizado, por favor desconsidere esta mensagem. Caso precise de ajuda, fale com nosso atendimento."
-    : "Se já realizou o pagamento, por favor desconsidere esta mensagem. Qualquer dúvida, estamos à disposição.";
-
-  return [
-    header,
-    "",
-    `Fatura: ${fatura.id || "-"}`,
-    `Valor: ${formatMoney(fatura.valor)}`,
-    `Vencimento: ${fatura.dataVencimento || "-"}`,
-    "",
-    "Para sua segurança, confira os dados antes de pagar e use apenas os canais oficiais da GLC Internet.",
-    footer,
-  ].join("\n");
-}
-
-function formatMoney(value: string) {
-  return value ? `R$ ${value}` : "-";
+  return buildBillingCadenceCustomerMessage({ stage: etapa, faturaId: fatura.id, valor: fatura.valor, dataVencimento: fatura.dataVencimento });
 }
 
 function blocked(idCliente: string, motivo: string): PreviewItem {
