@@ -443,15 +443,12 @@ export default function FinanceiroPage() {
         />
         <SafeStepCard
           step="3"
-          title="Copie manualmente"
-          description="A mensagem pronta é apenas apoio interno: confira no IXC antes de enviar ao cliente."
+          title="Use como backup"
+          description="Mundiale segue como canal principal. GLC Atende apoia quando faltar boleto/fatura ou para conferência interna."
         />
       </section>
 
-      <BillingCadencePreview />
-
-      <ReguaPreviewPanel preview={reguaPreview} loading={loadingRegua} error={reguaError} dispatchEnabled={Boolean(reguaControle?.dispatch?.whatsappEnabled)} onRecordDryRun={registrarDryRunRegua} onDispatchWhatsApp={acionarEnvioWhatsappRegua} />
-      <ReguaControlePanel controle={reguaControle} loading={loadingReguaControle} message={reguaControleMsg} currentIds={cleanIds} onRefresh={carregarReguaControle} onAddException={adicionarExcecaoRegua} onRemoveException={removerExcecaoRegua} />
+      <ContingencyModePanel />
 
       <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
         <div>
@@ -508,6 +505,12 @@ export default function FinanceiroPage() {
           </div>
         )}
       </section>
+
+
+      <BillingCadencePreview />
+
+      <ReguaPreviewPanel preview={reguaPreview} loading={loadingRegua} error={reguaError} dispatchEnabled={Boolean(reguaControle?.dispatch?.whatsappEnabled)} onRecordDryRun={registrarDryRunRegua} onDispatchWhatsApp={acionarEnvioWhatsappRegua} />
+      <ReguaControlePanel controle={reguaControle} loading={loadingReguaControle} message={reguaControleMsg} currentIds={cleanIds} onRefresh={carregarReguaControle} onAddException={adicionarExcecaoRegua} onRemoveException={removerExcecaoRegua} />
 
       <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
         <div className="flex items-center gap-2 text-amber-200 text-sm bg-amber-500/10 border border-amber-500/20 rounded-xl p-3">
@@ -781,6 +784,28 @@ function buildApprovalRiskSummary(aprovacoes: AprovacaoEnvio[]) {
     else if (diffDays <= 3) acc.nextThreeDays += 1;
     return acc;
   }, { overdue: 0, today: 0, nextThreeDays: 0 });
+}
+
+
+function ContingencyModePanel() {
+  return (
+    <section className="rounded-2xl border border-sky-500/20 bg-sky-500/10 p-5 text-sm text-sky-100 space-y-2">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Modo atual: backup da Mundiale</h2>
+          <p className="mt-1 text-xs leading-relaxed text-sky-100/90 max-w-3xl">
+            A Mundiale continua sendo o canal principal com o cliente. O GLC Atende fica preparado para consulta segura, conferência interna e contingência quando boleto/fatura não aparecerem corretamente na Mundiale.
+          </p>
+        </div>
+        <span className="rounded-full border border-sky-300/30 bg-sky-300/10 px-3 py-1 text-xs font-semibold text-sky-100">Sem envio ao cliente</span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+        <div className="rounded-xl bg-[#0F2744]/80 border border-sky-500/10 p-3"><b>E-mail:</b> IXC mantém envio oficial.</div>
+        <div className="rounded-xl bg-[#0F2744]/80 border border-sky-500/10 p-3"><b>WhatsApp principal:</b> Mundiale.</div>
+        <div className="rounded-xl bg-[#0F2744]/80 border border-sky-500/10 p-3"><b>GLC Atende:</b> backup, auditoria e preparação para assumir no futuro.</div>
+      </div>
+    </section>
+  );
 }
 
 function ReguaPreviewPanel({ preview, loading, error, dispatchEnabled, onRecordDryRun, onDispatchWhatsApp }: { preview: ReguaPreviewResponse | null; loading: boolean; error: string; dispatchEnabled: boolean; onRecordDryRun: (item: ReguaPreviewItem) => void; onDispatchWhatsApp: (item: ReguaPreviewItem) => void }) {
