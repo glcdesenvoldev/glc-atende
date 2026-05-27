@@ -148,6 +148,7 @@ type ReguaControleResponse = {
     whatsappEnabled: boolean;
     evolutionConfigured: boolean;
     instanceConfigured: boolean;
+    businessHours?: { allowed: boolean; reason?: string; timezone: string; start: string; end: string; localDay: string; localTime: string };
     safety: string;
   };
   safety: string;
@@ -882,6 +883,9 @@ function ReguaControlePanel({
 
       <div className={`rounded-xl border p-3 text-xs ${controle?.dispatch?.whatsappEnabled ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-100" : "border-amber-500/20 bg-amber-500/10 text-amber-100"}`}>
         <b>Status do envio real:</b> {controle?.dispatch?.whatsappEnabled ? "liberado por configuração" : "bloqueado por configuração"}. {controle?.dispatch?.safety || "Aguardando leitura da configuração."}
+        {controle?.dispatch?.businessHours ? (
+          <p className="mt-1">Horário da régua: {controle.dispatch.businessHours.start}-{controle.dispatch.businessHours.end} · {controle.dispatch.businessHours.timezone} · agora {controle.dispatch.businessHours.localDay} {controle.dispatch.businessHours.localTime} · {controle.dispatch.businessHours.allowed ? "dentro do horário" : controle.dispatch.businessHours.reason}</p>
+        ) : null}
       </div>
 
       <div className="rounded-xl border border-[#2A4060] bg-[#0F2744] p-3 space-y-3">

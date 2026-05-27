@@ -77,6 +77,44 @@ function formatBillingMoney(value: string) {
   return value ? `R$ ${value}` : "-";
 }
 
+export type BillingCadenceBusinessHoursStatus = {
+  allowed: boolean;
+  reason?: string;
+  timezone: string;
+  weekdays: string[];
+  start: string;
+  end: string;
+  localDay: string;
+  localTime: string;
+};
+
+export function getBillingCadenceBusinessHoursStatus(now = new Date()): BillingCadenceBusinessHoursStatus {
+  const timezone = process.env.BILLING_CADENCE_TIMEZONE || process.env.TELEGRAM_ACCESS_TIMEZONE || "America/Sao_Paulo";
+  const weekdays = (process.env.BILLING_CADENCE_WEEKDAYS || "Mon,Tue,Wed,Thu,Fri")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const start = process.env.BILLING_CADENCE_START || "08:00";
+  const end = process.env.BILLING_CADENCE_END || "18:00";
+  const parts = getLocalDateParts(now, timezone);
+
+  if (!weekdays.includes(parts.weekday)) {
+    return { allowed: false, reason: `Fora dos dias permitidos (${weekdays.join(", ")}) no fuso ${timezone}.`, timezone, weekdays, start, end, localDay: parts.weekday, localTime: parts.time };
+  }
+
+  if (parts.time < start || parts.time > end) {
+    return { allowed: false, reason: `Fora do horário permitido (${start}-${end}) no fuso ${timezone}.`, timezone, weekdays, start, end, localDay: parts.weekday, localTime: parts.time };
+  }
+
+  return { allowed: true, timezone, weekdays, start, end, localDay: parts.weekday, localTime: parts.time };
+}
+
+function getLocalDateParts(date: Date, timezone: string) {
+  const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: timezone }).format(date);
+  const time = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: timezone }).format(date);
+  return { weekday, time };
+}
+
 export async function getBillingCadenceGuard(input: { idCliente: string; faturaId?: string; stage?: BillingCadenceStage }): Promise<BillingCadenceGuard> {
   const [history, exceptions] = await Promise.all([readHistory(), readExceptions()]);
   const exception = exceptions.find((item) => item.idCliente === input.idCliente && item.status === "active");

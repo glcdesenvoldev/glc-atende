@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildBillingCadenceCustomerMessage, disableBillingCadenceException, getBillingCadenceGuard, listBillingCadenceExceptions, listBillingCadenceHistory, recordBillingCadenceEvent, upsertBillingCadenceException, type BillingCadenceStage } from "@/lib/billing-cadence";
+import { buildBillingCadenceCustomerMessage, disableBillingCadenceException, getBillingCadenceBusinessHoursStatus, getBillingCadenceGuard, listBillingCadenceExceptions, listBillingCadenceHistory, recordBillingCadenceEvent, upsertBillingCadenceException, type BillingCadenceStage } from "@/lib/billing-cadence";
 import { getBillingCadenceEvolutionConfig, maskWhatsAppNumber, normalizeBrazilWhatsAppNumber, sendEvolutionText } from "@/lib/evolution";
 import { ixcApi, type IxcFatura } from "@/lib/ixc";
 
@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
       whatsappEnabled: evolution.enabled,
       evolutionConfigured: Boolean(evolution.url && evolution.apiKey && evolution.instance),
       instanceConfigured: Boolean(evolution.instance),
+      businessHours: getBillingCadenceBusinessHoursStatus(),
       safety: evolution.enabled
         ? "Envio WhatsApp da régua liberado por configuração. Ainda revalida IXC, telefone, anti-duplicidade e opt-out antes de enviar."
         : "Envio WhatsApp da régua bloqueado por configuração. Configure BILLING_CADENCE_WHATSAPP_ENABLED=1 somente após aprovação do número definitivo.",
@@ -84,6 +85,12 @@ async function dispatchBillingCadenceWhatsApp(input: { idCliente: string; fatura
       messagePreview: candidate.message,
       safety: "Nenhum WhatsApp foi enviado. Para liberar futuramente: configurar BILLING_CADENCE_WHATSAPP_ENABLED=1 após aprovação explícita.",
     };
+  }
+
+  const businessHours = getBillingCadenceBusinessHoursStatus();
+  if (!businessHours.allowed) {
+    await recordBillingCadenceEvent({ idCliente: input.idCliente, faturaId: input.faturaId, stage: input.stage, status: "blocked", reason: businessHours.reason || "Fora do horário comercial da régua.", createdBy: "dashboard" });
+    return { ok: false, blocked: true, reason: businessHours.reason || "Fora do horário comercial da régua.", businessHours, safety: "Bloqueado por horário comercial. Nenhum WhatsApp foi enviado." };
   }
 
   const sent = await sendEvolutionText({ number: candidate.phone, text: candidate.message });

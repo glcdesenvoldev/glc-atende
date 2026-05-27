@@ -47,6 +47,7 @@ Status: modo backup/contingência. A camada técnica existe, mas envio real para
 - Não enviar se o envio real estiver bloqueado por configuração (`BILLING_CADENCE_WHATSAPP_ENABLED` diferente de `1`).
 - Não enviar se houver múltiplas faturas abertas sem escolha segura.
 - Não enviar fora da etapa D-5, D0 ou D+3.
+- Não enviar fora do horário comercial definido. Padrão: segunda a sexta, 08:00-18:00, America/Sao_Paulo.
 - Não enviar para cliente sem telefone válido/WhatsApp confirmado.
 - Não enviar se cliente estiver em lista de exceção/opt-out/manual.
 - Não enviar etapa duplicada para o mesmo cliente + fatura + canal.
@@ -63,6 +64,7 @@ Status: modo backup/contingência. A camada técnica existe, mas envio real para
 - `EVOLUTION_BILLING_INSTANCE`: instância opcional exclusiva para cobrança; se vazia, usa `EVOLUTION_INSTANCE`.
 - `BILLING_CADENCE_WHATSAPP_ENABLED=0`: padrão seguro, sem envio real.
 - `BILLING_CADENCE_WHATSAPP_ENABLED=1`: só configurar após aprovação explícita de Gilson do número definitivo.
+- `BILLING_CADENCE_TIMEZONE`, `BILLING_CADENCE_WEEKDAYS`, `BILLING_CADENCE_START`, `BILLING_CADENCE_END`: definem janela permitida para envio futuro.
 
 ## Situação atual
 
