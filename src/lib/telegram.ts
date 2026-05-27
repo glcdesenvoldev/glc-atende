@@ -530,6 +530,89 @@ export async function sendTelegramDailySummary(chatId: string | number) {
   };
 }
 
+export async function sendTelegramFinanceSummary(chatId: string | number) {
+  const summary = await buildFinanceSummaryPayload();
+  await sendTelegramMessage(chatId, summary.text, summary.replyMarkup);
+  return { ok: true, ...summary.meta };
+}
+
+export async function buildTelegramFinanceSummaryDryRun() {
+  const summary = await buildFinanceSummaryPayload();
+  return { ok: true, dryRun: true, text: summary.text, meta: summary.meta };
+}
+
+async function buildFinanceSummaryPayload() {
+  const approvals = await listFinanceApprovals();
+  const pending = approvals.filter((approval) => approval.status === "pending");
+  const approvedOpen = approvals.filter((approval) => approval.status === "approved");
+  const manualSent = approvals.filter((approval) => approval.status === "manual_sent");
+  const rejected = approvals.filter((approval) => approval.status === "rejected");
+  const totalManualSent = manualSent.reduce((sum, approval) => sum + parseMoneyNumber(approval.valor), 0);
+  const totalApprovedOpen = approvedOpen.reduce((sum, approval) => sum + parseMoneyNumber(approval.valor), 0);
+  const urgent = approvals
+    .filter((approval) => approval.status === "pending" || approval.status === "approved")
+    .map((approval) => ({ approval, due: getDuePriorityValue(approval.dataVencimento) }))
+    .filter((item) => item.due <= 3)
+    .sort((a, b) => a.due - b.due)
+    .slice(0, 5);
+
+  const urgentLines = urgent.map(({ approval, due }) => {
+    const dueLabel = due < 0 ? `vencida há ${Math.abs(due)} dia(s)` : due === 0 ? "vence hoje" : `vence em ${due} dia(s)`;
+    return `• ${statusEmojiAprovacao(approval.status)} ${escapeHtml(approval.idCliente)} · fatura ${escapeHtml(approval.faturaId)} · R$ ${escapeHtml(approval.valor || "-")} · ${dueLabel}`;
+  });
+
+  const meta = {
+    total: approvals.length,
+    pending: pending.length,
+    approvedOpen: approvedOpen.length,
+    manualSent: manualSent.length,
+    rejected: rejected.length,
+    urgent: urgent.length,
+    totalManualSent,
+    totalApprovedOpen,
+  };
+
+  return {
+    text: [
+      "💰 Resumo financeiro interno — GLC Atende",
+      "",
+      `Total de registros internos: ${approvals.length}`,
+      `⏳ Pendentes de aprovação: ${pending.length}`,
+      `✅ Aprovadas aguardando envio manual: ${approvedOpen.length}`,
+      `📌 Marcadas como enviadas manualmente: ${manualSent.length}`,
+      `❌ Rejeitadas: ${rejected.length}`,
+      `💵 Valor aprovado aguardando envio manual: R$ ${formatMoneyNumber(totalApprovedOpen)}`,
+      `💰 Valor marcado como enviado manualmente: R$ ${formatMoneyNumber(totalManualSent)}`,
+      "",
+      urgentLines.length ? "⚠️ Prioridades por vencimento:" : "⚠️ Prioridades por vencimento: nenhuma pendência vencida ou vencendo em até 3 dias.",
+      ...urgentLines,
+      "",
+      "Segurança: resumo interno. Não envia WhatsApp, não baixa pagamento e não altera IXC.",
+    ].join("\n"),
+    replyMarkup: buildResumoFinanceiroKeyboard(),
+    meta,
+  };
+}
+
+function getDuePriorityValue(value: string) {
+  const due = parseDueDate(value);
+  if (!due) return 999999;
+  const today = new Date();
+  const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.round((due.getTime() - startToday.getTime()) / 86400000);
+}
+
+function parseDueDate(value: string) {
+  const clean = String(value || "").trim();
+  if (!clean) return null;
+  const iso = clean.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  const br = clean.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (br) return new Date(Number(br[3]), Number(br[2]) - 1, Number(br[1]));
+  const parsed = new Date(clean);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 async function buildResumoDiaPayload() {
   const [chamadosResult, approvals] = await Promise.all([
     ixcApi.getChamados(10, "A").catch(() => ({ total: 0, items: [], unavailable: true })),

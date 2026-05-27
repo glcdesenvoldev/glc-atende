@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, CircleDollarSign, Copy, FileWarning, LayoutDashboard, Loader2, Lock, RefreshCw, Search, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, CircleDollarSign, Copy, FileWarning, LayoutDashboard, Loader2, Lock, QrCode, RefreshCw, Search, ShieldCheck, XCircle } from "lucide-react";
 
 type Status = "segura" | "multiplas" | "sem_fatura" | "indisponivel";
 
@@ -81,6 +81,7 @@ type ClienteBusca = {
   bairro: string;
   cidade: string;
   telefone_final: string;
+  documento_final?: string;
 };
 
 type AuditoriaFinanceira = {
@@ -103,6 +104,7 @@ export default function FinanceiroPage() {
   const [ids, setIds] = useState("");
   const [buscaCliente, setBuscaCliente] = useState("");
   const [clientes, setClientes] = useState<ClienteBusca[]>([]);
+  const [clienteSelecionado, setClienteSelecionado] = useState<ClienteBusca | null>(null);
   const [loadingBusca, setLoadingBusca] = useState(false);
   const [erroBusca, setErroBusca] = useState("");
   const [loading, setLoading] = useState(false);
@@ -212,6 +214,7 @@ export default function FinanceiroPage() {
   }
 
   async function consultarCliente(cliente: ClienteBusca) {
+    setClienteSelecionado(cliente);
     setClientes([cliente]);
     setIds(cliente.id);
     setBuscaCliente(cliente.nome || cliente.id);
@@ -268,6 +271,8 @@ export default function FinanceiroPage() {
         />
       </section>
 
+      <BillingCadencePreview />
+
       <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
         <div>
           <h2 className="text-lg font-semibold">Buscar cliente no IXC</h2>
@@ -308,6 +313,7 @@ export default function FinanceiroPage() {
                     </span>
                     <span>• {cliente.bairro || "bairro -"} / {cliente.cidade || "cidade -"}</span>
                     {cliente.telefone_final ? <span>• Tel. {cliente.telefone_final}</span> : null}
+                    {cliente.documento_final ? <span>• CPF/CNPJ {cliente.documento_final}</span> : null}
                   </div>
                 </div>
                 <button
@@ -328,26 +334,57 @@ export default function FinanceiroPage() {
           <Lock className="w-4 h-4 shrink-0" />
           <span>Modo seguro: envio externo, baixa financeira, renegociação e alteração no IXC continuam bloqueados sem aprovação humana.</span>
         </div>
-        <label className="block text-sm font-medium text-[#CBD5E1]">
-          IDs dos clientes
-          <textarea
-            value={ids}
-            onChange={(e) => setIds(e.target.value)}
-            placeholder="Ex.: 12345, 67890 ou um ID por linha"
-            className="mt-2 min-h-28 w-full rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-3 text-sm text-white placeholder-[#94A3B8]/60 focus:outline-none focus:border-[#14B8A6]"
-          />
-        </label>
+        {clienteSelecionado ? (
+          <div className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-4 space-y-2">
+            <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-[#94A3B8]">Cliente selecionado</p>
+                <p className="mt-1 font-semibold">{clienteSelecionado.nome}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#94A3B8]">
+                  <span className={`rounded-full border px-2 py-0.5 font-medium ${clienteStatusClass(clienteSelecionado.status)}`}>
+                    {clienteStatusLabel(clienteSelecionado.status)}
+                  </span>
+                  <span>• {clienteSelecionado.bairro || "bairro -"} / {clienteSelecionado.cidade || "cidade -"}</span>
+                  {clienteSelecionado.telefone_final ? <span>• Tel. {clienteSelecionado.telefone_final}</span> : null}
+                  {clienteSelecionado.documento_final ? <span>• CPF/CNPJ {clienteSelecionado.documento_final}</span> : null}
+                </div>
+              </div>
+              <button
+                onClick={() => { setClienteSelecionado(null); setIds(""); setData(null); setError(""); }}
+                className="rounded-lg bg-[#1E3050] border border-[#2A4060] px-3 py-2 text-xs text-[#CBD5E1] hover:text-white"
+              >
+                Trocar cliente
+              </button>
+            </div>
+            <p className="text-xs text-emerald-200 bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
+              Conferência recomendada: antes de copiar boleto/PIX, peça para o cliente confirmar nome completo e CPF/CNPJ. O ID fica oculto para o atendente porque a consulta já foi feita pelo cliente selecionado.
+            </p>
+          </div>
+        ) : (
+          <details className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-4">
+            <summary className="cursor-pointer text-sm font-medium text-[#CBD5E1]">Consulta avançada por ID</summary>
+            <label className="mt-3 block text-sm font-medium text-[#CBD5E1]">
+              IDs dos clientes
+              <textarea
+                value={ids}
+                onChange={(e) => setIds(e.target.value)}
+                placeholder="Ex.: 12345, 67890 ou um ID por linha"
+                className="mt-2 min-h-24 w-full rounded-xl bg-[#0D1B2A] border border-[#2A4060] px-4 py-3 text-sm text-white placeholder-[#94A3B8]/60 focus:outline-none focus:border-[#14B8A6]"
+              />
+            </label>
+          </details>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={consultar}
-            disabled={loading || cleanIds.length === 0}
+            disabled={loading || cleanIds.length === 0 || Boolean(clienteSelecionado)}
             className="inline-flex items-center gap-2 rounded-xl bg-[#F97316] hover:bg-[#ea6c0c] disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2 text-sm font-semibold"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-            Consultar faturas
+            {clienteSelecionado ? "Cliente já consultado" : "Consultar faturas"}
           </button>
           <button
-            onClick={() => { setIds(""); setData(null); setError(""); }}
+            onClick={() => { setIds(""); setClienteSelecionado(null); setData(null); setError(""); }}
             className="inline-flex items-center gap-2 rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-sm text-[#CBD5E1] hover:text-white"
           >
             <RefreshCw className="w-4 h-4" />
@@ -479,8 +516,13 @@ export default function FinanceiroPage() {
             <h2 className="text-lg font-semibold">Auditoria financeira recente</h2>
             <p className="text-xs text-[#94A3B8] mt-1">Rastro interno das solicitações, aprovações, rejeições e marcações de envio manual. Dados sensíveis continuam fora do log.</p>
           </div>
-          <button onClick={carregarAuditoria} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white">Atualizar auditoria</button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={carregarAuditoria} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white">Atualizar auditoria</button>
+            <button onClick={() => exportAuditCsv(auditoria)} disabled={auditoria.length === 0} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white disabled:opacity-40">Exportar CSV</button>
+            <button onClick={() => exportAuditJson(auditoria)} disabled={auditoria.length === 0} className="rounded-xl bg-[#0F2744] border border-[#2A4060] px-4 py-2 text-xs text-[#CBD5E1] hover:text-white disabled:opacity-40">Exportar JSON</button>
+          </div>
         </div>
+        {auditoria.length > 0 ? <AuditSummary events={auditoria} /> : null}
         {auditoria.length === 0 ? (
           <p className="text-sm text-[#94A3B8]">Nenhum evento financeiro auditado ainda.</p>
         ) : (
@@ -522,6 +564,35 @@ export default function FinanceiroPage() {
 
 
 
+function AuditSummary({ events }: { events: AuditoriaFinanceira[] }) {
+  const summary = events.reduce((acc, event) => {
+    if (event.action === "finance_approval_create") acc.created += 1;
+    else if (event.action === "finance_approval_decide" && event.status === "approved") acc.approved += 1;
+    else if (event.action === "finance_approval_decide" && event.status === "rejected") acc.rejected += 1;
+    else if (event.action === "finance_approval_manual_sent") acc.manualSent += 1;
+    return acc;
+  }, { created: 0, approved: 0, rejected: 0, manualSent: 0 });
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      <AuditMiniCard label="Criadas" value={summary.created} />
+      <AuditMiniCard label="Aprovadas" value={summary.approved} />
+      <AuditMiniCard label="Rejeitadas" value={summary.rejected} />
+      <AuditMiniCard label="Envio manual" value={summary.manualSent} />
+    </div>
+  );
+}
+
+function AuditMiniCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-[#2A4060] bg-[#0F2744] p-3">
+      <p className="text-[11px] text-[#94A3B8]">Auditoria recente</p>
+      <p className="mt-1 text-sm font-semibold text-[#CBD5E1]">{label}</p>
+      <p className="mt-1 text-2xl font-bold text-white">{value}</p>
+    </div>
+  );
+}
+
 function buildApprovalRiskSummary(aprovacoes: AprovacaoEnvio[]) {
   return aprovacoes.reduce((acc, aprovacao) => {
     const diffDays = getDuePriorityValue(aprovacao.dataVencimento);
@@ -530,6 +601,44 @@ function buildApprovalRiskSummary(aprovacoes: AprovacaoEnvio[]) {
     else if (diffDays <= 3) acc.nextThreeDays += 1;
     return acc;
   }, { overdue: 0, today: 0, nextThreeDays: 0 });
+}
+
+function BillingCadencePreview() {
+  const rules = [
+    { day: "D-5", title: "5 dias antes", action: "Lembrete preventivo", tone: "neutro", description: "Aviso educado antes do vencimento, sem tom de cobrança pesada." },
+    { day: "D0", title: "No vencimento", action: "Lembrete de vencimento", tone: "atenção", description: "Reforça vencimento no dia e orienta pagamento pelos canais oficiais." },
+    { day: "D+3", title: "3 dias após", action: "Cobrança leve", tone: "cobrança", description: "Mensagem curta informando pendência e risco operacional, sem ameaça indevida." },
+  ];
+
+  return (
+    <section className="bg-[#1E3050] border border-[#2A4060] rounded-2xl p-5 space-y-4">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Régua segura de cobrança WhatsApp — planejamento</h2>
+          <p className="text-xs text-[#94A3B8] mt-1 max-w-3xl">
+            Base sugerida para envio futuro via Evolution API: 5 dias antes, no vencimento e 3 dias após. Nesta fase fica em modo planejamento/preview; nenhum WhatsApp é enviado automaticamente.
+          </p>
+        </div>
+        <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-200">Envio automático bloqueado</span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {rules.map((rule) => (
+          <div key={rule.day} className="rounded-xl bg-[#0F2744] border border-[#2A4060] p-4 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="rounded-full bg-[#14B8A6]/10 border border-[#14B8A6]/30 px-2 py-1 text-xs font-bold text-[#5EEAD4]">{rule.day}</span>
+              <span className="text-[11px] uppercase tracking-wide text-[#94A3B8]">{rule.tone}</span>
+            </div>
+            <p className="font-semibold text-white">{rule.title}</p>
+            <p className="text-sm text-[#CBD5E1]">{rule.action}</p>
+            <p className="text-xs leading-relaxed text-[#94A3B8]">{rule.description}</p>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs leading-relaxed text-rose-100">
+        <b>Trava LGPD/operacional:</b> antes de qualquer disparo automático real, precisa validar base legal, opt-out, horário comercial, limite de tentativas, template aprovado, logs de consentimento/legítimo interesse e conferência de fatura única segura. Por enquanto, o sistema só prepara e orienta.
+      </div>
+    </section>
+  );
 }
 
 function ApprovalRiskSummaryCards({ summary }: { summary: ReturnType<typeof buildApprovalRiskSummary> }) {
@@ -616,6 +725,25 @@ function ApprovalSummaryCards({ summary }: { summary: ReturnType<typeof buildApp
 
 function formatMoneyNumber(value: number) {
   return value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function exportAuditCsv(events: AuditoriaFinanceira[]) {
+  const rows = events.map((event) => ({
+    data: event.ts,
+    evento: auditActionLabel(event.action),
+    acao: event.action,
+    status: event.status,
+    cliente: event.clientId,
+    fatura: event.faturaId,
+    protocolo: event.id,
+  }));
+  const headers = Object.keys(rows[0] || { data: "", evento: "", acao: "", status: "", cliente: "", fatura: "", protocolo: "" });
+  const csv = [headers.join(","), ...rows.map((row) => headers.map((header) => csvCell(row[header as keyof typeof row])).join(","))].join("\n");
+  downloadTextFile(`glc-auditoria-financeira-${dateStamp()}.csv`, csv, "text/csv;charset=utf-8");
+}
+
+function exportAuditJson(events: AuditoriaFinanceira[]) {
+  downloadTextFile(`glc-auditoria-financeira-${dateStamp()}.json`, JSON.stringify({ exportedAt: new Date().toISOString(), total: events.length, items: events }, null, 2), "application/json;charset=utf-8");
 }
 
 function exportApprovalsCsv(aprovacoes: AprovacaoEnvio[]) {
@@ -826,7 +954,12 @@ function FaturaSegura({ idCliente, fatura, onApprovalCreated }: { idCliente: str
       </div>
       <IxcValidationPanel fatura={fatura} segura />
       {fatura.linha_digitavel ? <CopyBlock label="Linha digitável" value={fatura.linha_digitavel} /> : null}
-      {fatura.pix_copia_cola ? <CopyBlock label="PIX copia-e-cola" value={fatura.pix_copia_cola} /> : null}
+      {fatura.pix_copia_cola ? (
+        <>
+          <CopyBlock label="PIX copia-e-cola" value={fatura.pix_copia_cola} />
+          <PixQrCode payload={fatura.pix_copia_cola} />
+        </>
+      ) : null}
       {fatura.link ? <CopyBlock label="Link/PDF" value={fatura.link} /> : null}
       <div className="flex flex-wrap items-center gap-3">
         <button
@@ -840,6 +973,30 @@ function FaturaSegura({ idCliente, fatura, onApprovalCreated }: { idCliente: str
       </div>
       <CopyBlock label="Mensagem pronta para cliente — copiar manualmente somente após conferência" value={mensagemClienteFatura(fatura)} />
       <p className="text-xs text-amber-200">Conferir no IXC antes de enviar ao cliente. Aprovação humana obrigatória. O sistema apenas prepara o texto; não envia automaticamente.</p>
+    </div>
+  );
+}
+
+
+function PixQrCode({ payload }: { payload: string }) {
+  const src = `/api/financeiro/pix-qrcode?payload=${encodeURIComponent(payload)}`;
+
+  return (
+    <div className="rounded-lg bg-[#0D1B2A] border border-[#2A4060] p-3 space-y-3">
+      <div className="flex items-center gap-2 text-sm font-semibold text-[#CBD5E1]">
+        <QrCode className="w-4 h-4 text-[#14B8A6]" />
+        QR Code PIX — conferência interna
+      </div>
+      <div className="flex flex-col md:flex-row gap-3 md:items-center">
+        <div className="rounded-xl bg-white p-3 w-fit">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt="QR Code PIX gerado a partir do copia-e-cola" className="h-40 w-40" />
+        </div>
+        <div className="text-xs text-[#94A3B8] space-y-2 max-w-xl">
+          <p>Gerado localmente a partir do PIX copia-e-cola retornado pelo IXC.</p>
+          <p className="text-amber-200">Uso interno: conferir cliente, valor e vencimento antes de qualquer envio manual. O sistema não envia WhatsApp, não baixa pagamento e não altera o IXC.</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1008,8 +1165,8 @@ function statusAprovacao(status: "pending" | "approved" | "rejected" | "manual_s
 
 function clienteStatusLabel(status: string) {
   const normalized = String(status || "").trim().toUpperCase();
-  if (["A", "ATIVO", "ACTIVE"].includes(normalized)) return "Ativo";
-  if (["I", "INATIVO", "INACTIVE", "D", "DESATIVADO", "DESATIVADA"].includes(normalized)) return "Desativado";
+  if (["A", "ATIVO", "ACTIVE", "S", "SIM", "1", "TRUE"].includes(normalized)) return "Ativo";
+  if (["I", "INATIVO", "INACTIVE", "D", "DESATIVADO", "DESATIVADA", "N", "NAO", "NÃO", "0", "FALSE"].includes(normalized)) return "Desativado";
   if (["B", "BLOQUEADO", "BLOQUEADA", "SUSPENSO", "SUSPENSA"].includes(normalized)) return "Bloqueado";
   if (["C", "CANCELADO", "CANCELADA"].includes(normalized)) return "Cancelado";
   return status || "Não informado";
