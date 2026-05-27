@@ -5,6 +5,7 @@ import { createFinanceApproval, decideFinanceApproval, listFinanceApprovals, mar
 import type { FinanceApproval } from "@/lib/finance-approvals";
 import { digitsOnly, isCnpj, isCpf, sanitizeForAudit } from "@/lib/lgpd";
 import { ixcApi, type IxcChamado, type IxcCliente, type IxcFatura, type IxcContrato } from "@/lib/ixc";
+import { getCliente360, getOldestFatura, isContratoAtivo360, isFaturaVencida, normalizeClienteStatus, type Cliente360Payload } from "@/lib/cliente360";
 import { runRetentionCleanup } from "@/lib/retention";
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
@@ -169,6 +170,11 @@ async function handleCallback(context: AuditContext, data: string) {
     return;
   }
 
+  if (action === "cliente360" && value) {
+    await replyCliente360(context, value, "cliente360_callback");
+    return;
+  }
+
   await auditLog(context, { action: "callback_unsupported", status: "ignored", command: action });
   await sendTelegramMessage(context.chatId, "Comando de botão ainda não suportado.");
 }
@@ -237,6 +243,15 @@ async function handleCommand(context: AuditContext, text: string) {
         return;
       }
       await replyCliente(context, arg, command === "/c" ? "cliente_short_command" : "cliente_command");
+      return;
+
+    case "/cliente360":
+    case "/360":
+      if (!arg) {
+        await sendTelegramMessage(context.chatId, "Use: /360 ID, CPF/CNPJ, telefone ou nome\nEx.: /360 joao");
+        return;
+      }
+      await replyCliente360(context, arg, command === "/360" ? "cliente360_short_command" : "cliente360_command");
       return;
 
     case "/contratos":
@@ -730,7 +745,9 @@ async function replyCliente(context: AuditContext, query: string, action = "clie
   const lines = result.items.slice(0, 5).map(formatCliente);
   const keyboard: ReplyMarkup | undefined = result.items.length === 1
     ? { inline_keyboard: [[
+        { text: "Ficha 360", callback_data: `cliente360:${result.items[0].id}` },
         { text: "Ver contratos", callback_data: `contratos:${result.items[0].id}` },
+      ], [
         { text: "Ver faturas", callback_data: `faturas:${result.items[0].id}` },
         { text: "Fatura segura", callback_data: `fatura_segura:${result.items[0].id}` },
       ]] }
@@ -738,6 +755,35 @@ async function replyCliente(context: AuditContext, query: string, action = "clie
 
   await auditLog(context, { action, status: "success", queryType: classifyLookupTerm(clean), resultCount: result.items.length, clientIds: result.items.slice(0, 5).map((item) => item.id) });
   await sendTelegramMessage(context.chatId, `👤 Cliente(s) encontrado(s):\n\n${lines.join("\n\n")}`, keyboard);
+}
+
+async function replyCliente360(context: AuditContext, query: string, action = "cliente360_lookup") {
+  const clean = query.trim();
+  const payload = await getCliente360(clean);
+
+  await auditLog(context, {
+    action,
+    status: payload.status,
+    queryType: classifyLookupTerm(clean),
+    clientId: payload.cliente?.id,
+    resultCount: payload.clientesEncontrados?.length || (payload.cliente ? 1 : 0),
+  });
+
+  if (payload.status === "not_found") {
+    await sendTelegramMessage(context.chatId, "Cliente não encontrado para montar Ficha 360. Tente ID, CPF/CNPJ, telefone com DDD ou parte mais específica do nome.");
+    return;
+  }
+
+  if (payload.status === "multiple") {
+    const lines = (payload.clientesEncontrados || []).slice(0, 5).map(formatCliente);
+    await sendTelegramMessage(
+      context.chatId,
+      `Encontrei mais de um cliente. Use o ID exato para montar a Ficha 360:\n\n${lines.join("\n\n")}`
+    );
+    return;
+  }
+
+  await sendTelegramMessage(context.chatId, formatCliente360(payload), buildCliente360Keyboard(payload));
 }
 
 async function replyContratosPorBusca(context: AuditContext, query: string, action = "contratos_lookup") {
@@ -1339,7 +1385,7 @@ async function auditLog(context: AuditContext, event: Record<string, unknown>) {
 function getCommandPermission(command: string): TelegramPermission | null {
   if (["/start", "/ajuda", "/help", "/menu", "/permissoes", "/perfil"].includes(command)) return "menu";
   if (["/status_glc", "/sg", "/resumo_dia", "/rd"].includes(command)) return "status";
-  if (["/cliente", "/c"].includes(command)) return "cliente";
+  if (["/cliente", "/c", "/cliente360", "/360"].includes(command)) return "cliente";
   if (["/contratos", "/contrato"].includes(command)) return "contratos";
   if (["/chamados", "/abertos", "/chamado"].includes(command)) return "chamados";
   if (["/faturas", "/boletos", "/fatura_segura", "/fs", "/pix", "/boleto", "/resumo_financeiro", "/rf"].includes(command)) return "financeiro";
@@ -1357,7 +1403,7 @@ function getCallbackPermission(action: string, value?: string): TelegramPermissi
     if (["cliente"].includes(value || "")) return "cliente";
     return "menu";
   }
-  if (action === "cliente") return "cliente";
+  if (["cliente", "cliente360"].includes(action)) return "cliente";
   if (action === "contratos") return "contratos";
   if (["faturas", "fatura_segura", "fatura_item", "approval_sent"].includes(action)) return "financeiro";
   if (action === "aprovacoes_filter") return "aprovacoes";
@@ -1537,6 +1583,7 @@ function helpText() {
     "/chamado ID — detalhe rápido de um chamado",
     "/cliente ID|telefone|nome — consulta cliente",
     "/c termo — atalho para consulta de cliente",
+    "/cliente360 termo ou /360 termo — Ficha 360 do cliente para atendimento",
     "/contratos CPF|ID|telefone|nome — consulta contrato(s) do cliente",
     "No privado: envie só o ID, telefone ou nome para buscar cliente",
     "No grupo: /c termo ou /cliente termo",
@@ -1576,6 +1623,89 @@ function formatChamadoDetalhado(chamado: IxcChamado) {
   ].filter(Boolean).join("\n");
 }
 
+function formatCliente360(payload: Cliente360Payload) {
+  const cliente = payload.cliente;
+  if (!cliente) return "Cliente não localizado para Ficha 360.";
+
+  const contratos = payload.contratos || [];
+  const faturas = payload.faturas || [];
+  const contratoPrincipal = contratos.find(isContratoAtivo360) || contratos[0];
+  const faturasAtrasadas = faturas.filter((fatura) => isFaturaVencida(fatura));
+  const faturaPrincipal = getOldestFatura(faturasAtrasadas.length ? faturasAtrasadas : faturas);
+  const enderecoCliente = [cliente.endereco, cliente.numero, cliente.bairro, cliente.cidade].filter(Boolean).join(", ");
+  const enderecoContrato = contratoPrincipal ? [contratoPrincipal.endereco || contratoPrincipal.endereco_padrao_cliente, contratoPrincipal.numero, contratoPrincipal.bairro, contratoPrincipal.cidade].filter(Boolean).join(", ") : "";
+  const plano = contratoPrincipal ? contratoPrincipal.plano || contratoPrincipal.produto || contratoPrincipal.contrato || contratoPrincipal.id_vd_contrato || contratoPrincipal.id_produto || "-" : "-";
+  const valor = faturaPrincipal?.valor_aberto || faturaPrincipal?.valor || "-";
+  const clienteStatus = normalizeClienteStatus(cliente);
+  const redeStatus = payload.unavailable?.rede ? "pendente integração RADIUS/concentrador" : "disponível";
+  const acsStatus = payload.unavailable?.acs ? "pendente integração ACS" : "disponível";
+
+  return [
+    "<b>🧠 Ficha 360 do Cliente — GLC Atende</b>",
+    "",
+    `<b>👤 Cliente</b>`,
+    `ID: <code>${escapeHtml(cliente.id)}</code>`,
+    `Nome: <b>${escapeHtml(cliente.razao || cliente.fantasia || "-")}</b>`,
+    `Status cadastro: ${escapeHtml(formatCliente360Status(clienteStatus))}`,
+    enderecoCliente ? `Endereço cadastro: ${escapeHtml(enderecoCliente)}` : undefined,
+    "",
+    `<b>📄 Contrato/serviço</b>`,
+    contratoPrincipal ? `Contrato: <code>${escapeHtml(contratoPrincipal.id || "-")}</code>` : "Contrato: não localizado",
+    contratoPrincipal ? `Plano: ${escapeHtml(plano)}` : undefined,
+    contratoPrincipal ? `Status contrato: ${escapeHtml(formatContratoStatus(contratoPrincipal.status))}` : undefined,
+    contratoPrincipal ? `Status internet: ${escapeHtml(formatInternetStatus(contratoPrincipal.status_internet))}` : undefined,
+    contratoPrincipal?.bloqueio_automatico ? `Bloqueio automático: ${escapeHtml(formatYesNo(contratoPrincipal.bloqueio_automatico))}` : undefined,
+    enderecoContrato ? `Instalação: ${escapeHtml(enderecoContrato)}` : undefined,
+    "",
+    `<b>💰 Financeiro</b>`,
+    faturaPrincipal ? `Fatura principal: <code>${escapeHtml(faturaPrincipal.id)}</code>` : "Fatura aberta: nenhuma localizada",
+    faturaPrincipal ? `Valor: R$ ${escapeHtml(valor)} · Venc.: ${escapeHtml(faturaPrincipal.data_vencimento || "-")}` : undefined,
+    faturas.length > 1 ? `Total de faturas abertas/localizadas: ${faturas.length}` : undefined,
+    faturasAtrasadas.length ? `Atrasadas: ${faturasAtrasadas.length}` : undefined,
+    "",
+    `<b>🌐 Rede</b>`,
+    `Status integração: ${escapeHtml(redeStatus)}`,
+    "IP atual: pendente",
+    "Concentrador/NAS: pendente",
+    "Sessão PPPoE: pendente",
+    "",
+    `<b>📡 ACS / Wi-Fi</b>`,
+    `Status integração: ${escapeHtml(acsStatus)}`,
+    "Equipamento/ONU: pendente",
+    "Wi-Fi atual: pendente",
+    "Alteração de senha: bloqueada até integração + confirmação do cliente",
+    "",
+    `<b>🧭 Diagnóstico</b>`,
+    ...(payload.diagnostico || []).map((line) => `• ${escapeHtml(line)}`),
+    "",
+    `<b>✅ Próxima ação sugerida</b>`,
+    ...(payload.proximasAcoes || []).map((line) => `• ${escapeHtml(line)}`),
+    "",
+    "🔒 LGPD: consulta interna. Não repassar dados técnicos sensíveis sem necessidade.",
+  ].filter((line): line is string => Boolean(line)).join("\n");
+}
+
+function buildCliente360Keyboard(payload: Cliente360Payload): ReplyMarkup | undefined {
+  const clienteId = payload.cliente?.id;
+  if (!clienteId) return undefined;
+
+  return { inline_keyboard: [[
+    { text: "Ver contratos", callback_data: `contratos:${clienteId}` },
+    { text: "Ver faturas", callback_data: `faturas:${clienteId}` },
+  ], [
+    { text: "Fatura segura", callback_data: `fatura_segura:${clienteId}` },
+    { text: "Atualizar 360", callback_data: `cliente360:${clienteId}` },
+  ]] };
+}
+
+function formatCliente360Status(status: string) {
+  if (status === "ativo") return "✅ Ativo";
+  if (status === "bloqueado") return "🔴 Bloqueado";
+  if (status === "desativado") return "⚠️ Desativado";
+  if (status === "cancelado") return "🔴 Cancelado";
+  return status || "Não informado";
+}
+
 function formatCliente(cliente: IxcCliente) {
   const telefone = cliente.telefone_celular || cliente.fone_celular || cliente.fone || "-";
   const endereco = [cliente.endereco, cliente.numero, cliente.bairro, cliente.cidade].filter(Boolean).join(", ");
@@ -1583,7 +1713,7 @@ function formatCliente(cliente: IxcCliente) {
   return [
     `ID: ${escapeHtml(cliente.id)}`,
     `Nome: ${escapeHtml(cliente.razao || cliente.fantasia || "-")}`,
-    `Status: ${escapeHtml(cliente.status || "-")}`,
+    `Status: ${escapeHtml(cliente.status || cliente.ativo || cliente.status_cliente || "-")}`,
     `Telefone: ${escapeHtml(telefone)}`,
     endereco ? `Endereço: ${escapeHtml(endereco)}` : "",
   ].filter(Boolean).join("\n");
