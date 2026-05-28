@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import type { IxcCliente, IxcContrato } from "@/lib/ixc";
 
 export type AcsWifiInterface = {
@@ -58,7 +57,7 @@ export function getAcsConfig(): AcsConfig {
     clientSecret: process.env.ACS_CLIENT_SECRET,
     accessToken: process.env.ACS_ACCESS_TOKEN,
     privateKeyPem: normalizePem(process.env.ACS_PRIVATE_KEY_PEM),
-    authPath: process.env.ACS_AUTH_PATH || "/auth",
+    authPath: process.env.ACS_AUTH_PATH || "/api/v2/token/oauth",
     mode,
     timeoutMs: Number(process.env.ACS_TIMEOUT_MS || "12000"),
   };
@@ -150,21 +149,25 @@ function extractAcsIdentifiers(cliente: IxcCliente, contratos: IxcContrato[]) {
 async function getAcsAccessToken(config: AcsConfig) {
   if (config.accessToken) return config.accessToken;
 
-  const authJwt = config.privateKeyPem ? createAuthJwt(config.clientId, config.privateKeyPem) : undefined;
-  const payload = authJwt
-    ? { token: authJwt }
-    : { clientId: config.clientId, clientSecret: config.clientSecret };
+  // IXC ACS usa OAuth2 com client_id + client_secret via form-urlencoded
+  // Endpoint oficial: POST /api/v2/token/oauth
+  const body = new URLSearchParams({
+    client_id: config.clientId,
+    client_secret: config.clientSecret || "",
+  }).toString();
 
   const response = await acsFetch<Record<string, unknown>>(config, config.authPath, {
     method: "POST",
-    body: JSON.stringify(payload),
+    body,
+    contentType: "application/x-www-form-urlencoded",
   });
 
-  return String(response?.accessToken || response?.access_token || response?.token || "");
+  return String(response?.access_token || response?.accessToken || response?.token || "");
 }
 
 async function findDevice(config: AcsConfig, token: string, identifiers: string[]) {
-  const searchPaths = (process.env.ACS_DEVICE_SEARCH_PATHS || "/app/devices/views/natural,/app/devices")
+  // API v2 pública: GET /api/v2/devices/views/natural com search por serialNumber
+  const searchPaths = (process.env.ACS_DEVICE_SEARCH_PATHS || "/api/v2/devices/views/natural")
     .split(",")
     .map((path) => path.trim())
     .filter(Boolean);
@@ -182,7 +185,7 @@ async function findDevice(config: AcsConfig, token: string, identifiers: string[
   return null;
 }
 
-async function acsFetch<T>(config: AcsConfig, path: string, init: { method: "GET" | "POST"; body?: string; token?: string }): Promise<T | null> {
+async function acsFetch<T>(config: AcsConfig, path: string, init: { method: "GET" | "POST"; body?: string; token?: string; contentType?: string }): Promise<T | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
 
@@ -191,7 +194,7 @@ async function acsFetch<T>(config: AcsConfig, path: string, init: { method: "GET
       method: init.method,
       headers: {
         "Accept": "application/json",
-        "Content-Type": "application/json",
+        "Content-Type": init.contentType || "application/json",
         ...(init.token ? { "Authorization": `Bearer ${init.token}` } : {}),
       },
       body: init.body,
@@ -271,22 +274,6 @@ function normalizeWifiInterface(value: unknown): AcsWifiInterface | null {
     band: stringValue(record.band || record.frequency),
     security: stringValue(record.security || record.beaconType),
   };
-}
-
-function createAuthJwt(clientId: string, privateKeyPem: string) {
-  const now = Math.floor(Date.now() / 1000);
-  const header = base64Url(JSON.stringify({ alg: "ES256", typ: "JWT" }));
-  const payload = base64Url(JSON.stringify({ iss: clientId, iat: now, exp: now + 120 }));
-  const unsigned = `${header}.${payload}`;
-  const signature = crypto.sign("sha256", Buffer.from(unsigned), {
-    key: privateKeyPem,
-    dsaEncoding: "ieee-p1363",
-  });
-  return `${unsigned}.${base64Url(signature)}`;
-}
-
-function base64Url(value: string | Buffer) {
-  return Buffer.from(value).toString("base64url");
 }
 
 function normalizePem(value?: string) {
