@@ -78,10 +78,11 @@ function buildDiagnostico(cliente: IxcCliente, contratos: IxcContrato[], faturas
   const faturasAtrasadas = faturas.filter((fatura) => isFaturaVencida(fatura));
 
   if (faturasAtrasadas.length > 0 || bloqueados.length > 0 || clienteStatus === "bloqueado") {
-    const oldest = getOldestFatura(faturasAtrasadas.length ? faturasAtrasadas : faturas);
-    lines.push(`Cliente com indício de bloqueio/pendência financeira${oldest?.data_vencimento ? ` desde ${oldest.data_vencimento}` : ""}.`);
+    const oldest = getOldestFatura(faturasAtrasadas);
+    const since = oldest?.data_vencimento ? ` desde ${oldest.data_vencimento}` : "";
+    lines.push(`Cliente com indício de bloqueio/pendência financeira${since}.`);
   } else if (faturas.length > 0) {
-    lines.push(`Cliente possui ${faturas.length} fatura(s) aberta(s); conferir antes de orientar suporte técnico.`);
+    lines.push(`Cliente possui ${faturas.length} fatura(s) aberta(s), mas sem atraso identificado nesta consulta.`);
   } else {
     lines.push("Sem fatura aberta localizada no IXC nesta consulta.");
   }
@@ -106,6 +107,8 @@ function buildProximasAcoes(contratos: IxcContrato[], faturas: IxcFatura[], unav
 
   if (faturasAtrasadas.length > 0 || bloqueados.length > 0) {
     actions.push("Priorizar orientação financeira/fatura segura antes de abrir chamado técnico.");
+  } else if (faturas.length > 0) {
+    actions.push("Se a fatura ainda não venceu e a internet está ativa, seguir com diagnóstico técnico normalmente.");
   } else {
     actions.push("Se reclamação for técnica, seguir para diagnóstico de rede/ACS quando a integração for ligada.");
   }
@@ -133,8 +136,10 @@ export function isContratoAtivo360(contrato: IxcContrato) {
 
 export function isContratoInternetBloqueada(contrato: IxcContrato) {
   const internet = String(contrato.status_internet || "").trim().toUpperCase();
-  const bloqueio = String(contrato.bloqueio_automatico || "").trim().toUpperCase();
-  return ["CM", "BLOQUEADO", "BLOQUEADA", "B"].includes(internet) || ["S", "SIM", "TRUE", "1"].includes(bloqueio);
+  // No IXC, bloqueio_automatico = Sim costuma indicar que o contrato PODE ser bloqueado automaticamente,
+  // não que o cliente esteja bloqueado agora. O bloqueio real deve vir do status_internet/status do cliente
+  // ou de fatura vencida.
+  return ["CM", "BLOQUEADO", "BLOQUEADA", "B", "SUSPENSO", "SUSPENSA"].includes(internet);
 }
 
 export function isFaturaVencida(fatura: IxcFatura, now = new Date()) {
