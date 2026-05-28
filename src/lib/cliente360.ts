@@ -1,3 +1,4 @@
+import { getAcsDeviceForCliente, type AcsDeviceSummary } from "@/lib/acs";
 import { ixcApi, type IxcCliente, type IxcContrato, type IxcFatura } from "@/lib/ixc";
 
 export type Cliente360Status = "ok" | "not_found" | "multiple" | "partial";
@@ -9,6 +10,7 @@ export type Cliente360Payload = {
   cliente?: IxcCliente;
   contratos?: IxcContrato[];
   faturas?: IxcFatura[];
+  acs?: AcsDeviceSummary;
   diagnostico?: string[];
   proximasAcoes?: string[];
   unavailable?: {
@@ -51,11 +53,12 @@ export async function getCliente360(query: string): Promise<Cliente360Payload> {
 
   const contratos = contratosResult.items || [];
   const faturas = faturasResult.items || [];
+  const acs = await getAcsDeviceForCliente(cliente, contratos);
   const unavailable = {
     contratos: "unavailable" in contratosResult && Boolean(contratosResult.unavailable),
     faturas: "unavailable" in faturasResult && Boolean(faturasResult.unavailable),
     rede: true,
-    acs: true,
+    acs: !acs.found,
   };
 
   return {
@@ -64,13 +67,14 @@ export async function getCliente360(query: string): Promise<Cliente360Payload> {
     cliente,
     contratos,
     faturas,
-    diagnostico: buildDiagnostico(cliente, contratos, faturas, unavailable),
-    proximasAcoes: buildProximasAcoes(contratos, faturas, unavailable),
+    acs,
+    diagnostico: buildDiagnostico(cliente, contratos, faturas, unavailable, acs),
+    proximasAcoes: buildProximasAcoes(contratos, faturas, unavailable, acs),
     unavailable,
   };
 }
 
-function buildDiagnostico(cliente: IxcCliente, contratos: IxcContrato[], faturas: IxcFatura[], unavailable: Cliente360Payload["unavailable"]) {
+function buildDiagnostico(cliente: IxcCliente, contratos: IxcContrato[], faturas: IxcFatura[], unavailable: Cliente360Payload["unavailable"], acs?: AcsDeviceSummary) {
   const lines: string[] = [];
   const clienteStatus = normalizeClienteStatus(cliente);
   const ativos = contratos.filter(isContratoAtivo360);
@@ -91,12 +95,18 @@ function buildDiagnostico(cliente: IxcCliente, contratos: IxcContrato[], faturas
   if (contratos.length === 0 && !unavailable?.contratos) lines.push("Nenhum contrato localizado para este cliente no IXC.");
   if (unavailable?.contratos) lines.push("Contratos indisponíveis no IXC no momento.");
   if (unavailable?.faturas) lines.push("Financeiro indisponível no IXC no momento.");
-  lines.push("Dados de rede/ACS ainda não integrados: IP, concentrador, sessão PPPoE, sinal e Wi-Fi aparecem como pendentes.");
+  if (acs?.found) {
+    lines.push(`ACS encontrou CPE${acs.model ? ` modelo ${acs.model}` : ""}${acs.online === false ? " offline" : acs.online === true ? " online" : ""}.`);
+  } else if (acs?.enabled) {
+    lines.push(acs.message || acs.error || "ACS habilitado, mas CPE ainda não localizado para este cliente.");
+  } else {
+    lines.push("Dados de rede/ACS ainda não integrados: IP, concentrador, sessão PPPoE, sinal e Wi-Fi aparecem como pendentes.");
+  }
 
   return lines;
 }
 
-function buildProximasAcoes(contratos: IxcContrato[], faturas: IxcFatura[], unavailable: Cliente360Payload["unavailable"]) {
+function buildProximasAcoes(contratos: IxcContrato[], faturas: IxcFatura[], unavailable: Cliente360Payload["unavailable"], acs?: AcsDeviceSummary) {
   const actions: string[] = [];
   const bloqueados = contratos.filter(isContratoInternetBloqueada);
   const faturasAtrasadas = faturas.filter((fatura) => isFaturaVencida(fatura));
@@ -113,6 +123,9 @@ function buildProximasAcoes(contratos: IxcContrato[], faturas: IxcFatura[], unav
     actions.push("Se reclamação for técnica, seguir para diagnóstico de rede/ACS quando a integração for ligada.");
   }
 
+  if (acs?.found) {
+    actions.push("Usar dados do ACS apenas para diagnóstico. Alteração de Wi-Fi continua bloqueada até etapa de escrita segura.");
+  }
   actions.push("Não alterar Wi-Fi, ACS ou concentrador sem confirmação explícita do cliente e trilha de auditoria.");
   return actions;
 }
