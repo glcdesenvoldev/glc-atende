@@ -1638,7 +1638,9 @@ function formatCliente360(payload: Cliente360Payload) {
   const valor = faturaPrincipal?.valor_aberto || faturaPrincipal?.valor || "-";
   const clienteStatus = normalizeClienteStatus(cliente);
   const redeStatus = payload.unavailable?.rede ? "pendente integração RADIUS/concentrador" : "disponível";
-  const acsStatus = payload.unavailable?.acs ? "pendente integração ACS" : "disponível";
+  const acs = payload.acs;
+  const acsStatus = acs?.found ? "✅ CPE localizado" : acs?.enabled ? "⚠️ ACS habilitado, aguardando credencial/localização" : "pendente integração ACS";
+  const wifiList = acs?.wifi?.map((wifi) => [wifi.band, wifi.ssid].filter(Boolean).join(": ")).filter(Boolean).slice(0, 3);
 
   return [
     "<b>🧠 Ficha 360 do Cliente — GLC Atende</b>",
@@ -1671,8 +1673,16 @@ function formatCliente360(payload: Cliente360Payload) {
     "",
     `<b>📡 ACS / Wi-Fi</b>`,
     `Status integração: ${escapeHtml(acsStatus)}`,
-    "Equipamento/ONU: pendente",
-    "Wi-Fi atual: pendente",
+    acs?.message ? `Observação: ${escapeHtml(acs.message)}` : undefined,
+    acs?.error ? `Erro ACS: ${escapeHtml(acs.error)}` : undefined,
+    acs?.serialNumber ? `Serial: <code>${escapeHtml(acs.serialNumber)}</code>` : "Serial: pendente",
+    acs?.model || acs?.manufacturer ? `Equipamento: ${escapeHtml([acs.manufacturer, acs.model].filter(Boolean).join(" "))}` : "Equipamento/ONU: pendente",
+    acs?.online !== undefined ? `Status CPE: ${acs.online ? "✅ online" : "🔴 offline"}` : "Status CPE: pendente",
+    acs?.lastInform ? `Último contato: ${escapeHtml(acs.lastInform)}` : undefined,
+    acs?.ip ? `IP ACS: <code>${escapeHtml(acs.ip)}</code>` : undefined,
+    acs?.uptime ? `Uptime: ${escapeHtml(acs.uptime)}` : undefined,
+    acs?.opticalPower ? `Sinal: ${escapeHtml(acs.opticalPower)}` : undefined,
+    wifiList?.length ? `Wi-Fi: ${escapeHtml(wifiList.join(" | "))}` : "Wi-Fi atual: pendente",
     "Alteração de senha: bloqueada até integração + confirmação do cliente",
     "",
     `<b>🧭 Diagnóstico</b>`,
