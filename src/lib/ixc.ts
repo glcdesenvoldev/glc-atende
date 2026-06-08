@@ -152,6 +152,13 @@ export interface IxcContrato {
   obs?: string;
 }
 
+export type IxcContratoAtivoFinanceiroResult = {
+  total: number;
+  items: IxcContrato[];
+  unavailable?: boolean;
+  sourceFilter?: string;
+};
+
 export interface IxcFatura {
   id: string;
   id_cliente: string;
@@ -341,6 +348,46 @@ export const ixcApi = {
 
     const items = normalizeRegistros(data.registros);
     return { total: parseInt(String(data.total || items.length || "0"), 10), items };
+  },
+
+  // Lista contratos ativos para diagnóstico financeiro interno.
+  // Somente leitura e com limite baixo por padrão para não sobrecarregar o IXC.
+  async getContratosAtivosFinanceiro(limit = 50): Promise<IxcContratoAtivoFinanceiroResult> {
+    const rp = String(Math.min(Math.max(limit, 1), 200));
+    let hadResponse = false;
+    const searches = [
+      { qtype: "cliente_contrato.status", query: "A", oper: "=", sourceFilter: "status=A" },
+      { qtype: "cliente_contrato.status_internet", query: "A", oper: "=", sourceFilter: "status_internet=A" },
+      { qtype: "cliente_contrato.status", query: "Ativo", oper: "L", sourceFilter: "status~Ativo" },
+    ];
+
+    for (const search of searches) {
+      const data = await ixcRequest<IxcListResponse<IxcContrato>>(
+        "cliente_contrato",
+        {
+          qtype: search.qtype,
+          query: search.query,
+          oper: search.oper,
+          page: "1",
+          rp,
+          sortname: "cliente_contrato.id",
+          sortorder: "desc",
+        }
+      );
+
+      if (!data) continue;
+      hadResponse = true;
+      const items = normalizeRegistros(data.registros);
+      if (items.length > 0) {
+        return {
+          total: parseInt(String(data.total || items.length || "0"), 10),
+          items,
+          sourceFilter: search.sourceFilter,
+        };
+      }
+    }
+
+    return { total: 0, items: [], unavailable: !IXC_TOKEN || !hadResponse };
   },
 
   // Lista contas a receber/faturas abertas do cliente. Por segurança, não baixa PDF nem envia para cliente.

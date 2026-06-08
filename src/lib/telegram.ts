@@ -1,6 +1,7 @@
 import { appendFile, mkdir } from "fs/promises";
 import { dirname } from "path";
 import QRCode from "qrcode";
+import { buildFinanceDiagnostic, type FinanceDiagnosticClient } from "@/lib/finance-diagnostics";
 import { createFinanceApproval, decideFinanceApproval, listFinanceApprovals, markFinanceApprovalManualSent } from "@/lib/finance-approvals";
 import type { FinanceApproval } from "@/lib/finance-approvals";
 import { digitsOnly, isCnpj, isCpf, sanitizeForAudit } from "@/lib/lgpd";
@@ -289,6 +290,16 @@ async function handleCommand(context: AuditContext, text: string) {
     case "/resumo_financeiro":
     case "/rf":
       await replyResumoFinanceiro(context);
+      return;
+
+    case "/inadimplentes":
+    case "/atrasados":
+      await replyInadimplentesIxc(context, arg);
+      return;
+
+    case "/sem_boleto":
+    case "/sem_boletos":
+      await replySemBoletoIxc(context, arg);
       return;
 
     case "/lgpd_limpeza":
@@ -912,6 +923,7 @@ Ações disponíveis:
 
 async function replyResumoFinanceiro(context: AuditContext) {
   const approvals = await listFinanceApprovals();
+  const diagnostic = await buildFinanceDiagnostic({ limit: 20, auditSource: `telegram:${context.userId}:resumo_financeiro` }).catch(() => null);
   const totals = approvals.reduce<Record<string, number>>((acc, approval) => {
     acc[approval.status] = (acc[approval.status] || 0) + 1;
     return acc;
@@ -929,6 +941,19 @@ async function replyResumoFinanceiro(context: AuditContext) {
     [
       "📊 Resumo financeiro interno",
       "",
+      "IXC read-only",
+      diagnostic
+        ? `• Clientes avaliados: ${diagnostic.totalClientesAvaliados}`
+        : "• Diagnóstico IXC: indisponível agora",
+      diagnostic
+        ? `• Clientes com 3+ faturas vencidas: ${diagnostic.inadimplentesCriticos.length}`
+        : "",
+      diagnostic
+        ? `• Clientes ativos sem fatura aberta localizada: ${diagnostic.semBoletoAberto.length}`
+        : "",
+      diagnostic?.sourceFilter ? `• Filtro de contratos: ${escapeHtml(diagnostic.sourceFilter)}` : "",
+      "",
+      "Aprovações internas",
       `Total de registros: ${approvals.length}`,
       `⏳ Pendentes: ${totals.pending || 0}`,
       `✅ Aprovadas aguardando envio manual: ${totals.approved || 0}`,
@@ -940,6 +965,61 @@ async function replyResumoFinanceiro(context: AuditContext) {
       pending.length ? `Atenção: ${pending.length} solicitação(ões) ainda pendente(s) de aprovação.` : "",
     ].filter(Boolean).join("\n"),
     buildResumoFinanceiroKeyboard()
+  );
+}
+
+async function replyInadimplentesIxc(context: AuditContext, arg = "") {
+  const limit = parseCommandLimit(arg, 40);
+  const diagnostic = await buildFinanceDiagnostic({ limit, auditSource: `telegram:${context.userId}:inadimplentes` });
+  const items = diagnostic.inadimplentesCriticos.slice(0, 15);
+
+  await auditLog(context, {
+    action: "finance_ixc_inadimplentes",
+    status: diagnostic.ok ? "success" : "partial",
+    resultCount: items.length,
+    totalClientes: diagnostic.totalClientesAvaliados,
+  });
+
+  await sendTelegramMessage(
+    context.chatId,
+    [
+      "🚨 Inadimplentes críticos — IXC read-only",
+      "",
+      `Clientes avaliados: ${diagnostic.totalClientesAvaliados}`,
+      `Critério: contrato ativo + 3 ou mais faturas vencidas`,
+      diagnostic.sourceFilter ? `Filtro IXC: ${escapeHtml(diagnostic.sourceFilter)}` : "",
+      "",
+      items.length ? items.map(formatFinanceDiagnosticClient).join("\n\n") : "Nenhum cliente crítico encontrado no limite consultado.",
+      "",
+      "Segurança: consulta somente leitura. Nenhuma cobrança foi enviada e nada foi alterado no IXC.",
+    ].filter(Boolean).join("\n")
+  );
+}
+
+async function replySemBoletoIxc(context: AuditContext, arg = "") {
+  const limit = parseCommandLimit(arg, 40);
+  const diagnostic = await buildFinanceDiagnostic({ limit, auditSource: `telegram:${context.userId}:sem_boleto` });
+  const items = diagnostic.semBoletoAberto.slice(0, 15);
+
+  await auditLog(context, {
+    action: "finance_ixc_sem_boleto",
+    status: diagnostic.ok ? "success" : "partial",
+    resultCount: items.length,
+    totalClientes: diagnostic.totalClientesAvaliados,
+  });
+
+  await sendTelegramMessage(
+    context.chatId,
+    [
+      "🧾 Clientes ativos sem fatura aberta localizada — IXC read-only",
+      "",
+      `Clientes avaliados: ${diagnostic.totalClientesAvaliados}`,
+      diagnostic.sourceFilter ? `Filtro IXC: ${escapeHtml(diagnostic.sourceFilter)}` : "",
+      "",
+      items.length ? items.map(formatFinanceDiagnosticClient).join("\n\n") : "Nenhum cliente sem fatura aberta encontrado no limite consultado.",
+      "",
+      "Atenção: isso não gera boleto automaticamente. É um alerta para conferência no IXC.",
+    ].filter(Boolean).join("\n")
   );
 }
 
@@ -962,6 +1042,25 @@ function parseMoneyNumber(value: string) {
     .replace(",", ".");
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseCommandLimit(arg: string, fallback: number) {
+  const value = Number(String(arg || "").match(/\d+/)?.[0] || fallback);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(Math.max(value, 1), 200);
+}
+
+function formatFinanceDiagnosticClient(client: FinanceDiagnosticClient) {
+  const valor = client.valorAberto.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fatura = client.faturaMaisAntiga
+    ? `\nFatura mais antiga: ${escapeHtml(client.faturaMaisAntiga.id)} · venc.: ${escapeHtml(client.faturaMaisAntiga.vencimento || "-")} · R$ ${escapeHtml(client.faturaMaisAntiga.valor || "-")}`
+    : "";
+
+  return [
+    `Cliente: <code>${escapeHtml(client.idCliente)}</code> — ${escapeHtml(truncate(client.nome, 70))}`,
+    `Contrato: ${escapeHtml(client.contratoId || "-")} · Status: ${escapeHtml(client.statusContrato || "-")} · Internet: ${escapeHtml(client.statusInternet || "-")}`,
+    `Faturas abertas: ${client.totalFaturasAbertas} · Vencidas: ${client.totalFaturasVencidas} · Valor aberto: R$ ${valor}${fatura}`,
+  ].join("\n");
 }
 
 function formatMoneyNumber(value: number) {
@@ -1388,7 +1487,7 @@ function getCommandPermission(command: string): TelegramPermission | null {
   if (["/cliente", "/c", "/cliente360", "/360"].includes(command)) return "cliente";
   if (["/contratos", "/contrato"].includes(command)) return "contratos";
   if (["/chamados", "/abertos", "/chamado"].includes(command)) return "chamados";
-  if (["/faturas", "/boletos", "/fatura_segura", "/fs", "/pix", "/boleto", "/resumo_financeiro", "/rf"].includes(command)) return "financeiro";
+  if (["/faturas", "/boletos", "/fatura_segura", "/fs", "/pix", "/boleto", "/resumo_financeiro", "/rf", "/inadimplentes", "/atrasados", "/sem_boleto", "/sem_boletos"].includes(command)) return "financeiro";
   if (["/aprovacoes", "/ap"].includes(command)) return "aprovacoes";
   if (["/lgpd_limpeza"].includes(command)) return "admin";
   return null;
@@ -1591,6 +1690,8 @@ function helpText() {
     "/faturas ID_CLIENTE — lista faturas abertas/localizadas",
     "/fatura_segura ID_CLIENTE ou /fs ID_CLIENTE — só retorna se existir exatamente 1 fatura aberta",
     "/resumo_financeiro ou /rf — resumo rápido das aprovações financeiras",
+    "/inadimplentes [limite] — clientes ativos com 3+ faturas vencidas, somente leitura",
+    "/sem_boleto [limite] — clientes ativos sem fatura aberta localizada, somente leitura",
     "/permissoes ou /perfil — mostra seu perfil de acesso no bot",
     "/aprovacoes ou /ap — lista últimas aprovações/envios manuais financeiros",
     "/aprovacoes pendentes|aprovadas|enviadas|rejeitadas — filtra por status",
