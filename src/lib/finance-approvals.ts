@@ -42,7 +42,7 @@ export async function createFinanceApproval(input: { idCliente: string; fatura: 
   const now = new Date().toISOString();
   const approvals = await readApprovals();
   const existing = approvals.find(
-    (approval) => approval.status === "pending" && approval.idCliente === input.idCliente && approval.faturaId === input.fatura.id
+    (approval) => ["pending", "approved"].includes(approval.status) && approval.idCliente === input.idCliente && approval.faturaId === input.fatura.id
   );
 
   if (existing) return { created: false, approval: existing };

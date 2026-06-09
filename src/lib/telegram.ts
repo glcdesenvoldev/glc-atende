@@ -151,6 +151,11 @@ async function handleCallback(context: AuditContext, data: string) {
     return;
   }
 
+  if (action === "approval_decide" && value && extra) {
+    await replyDecisaoAprovacaoTelegram(context, extra, value);
+    return;
+  }
+
   if (action === "aprovacoes_filter" && value) {
     await replyAprovacoesFinanceiras(context, value);
     return;
@@ -966,7 +971,25 @@ async function replyReenvioBoletoAssistido(context: AuditContext, idCliente: str
     return;
   }
 
-  await auditLog(context, { action, status: "prepared", clientId: clean, resultCount: 1, faturaIds: [result.fatura.id] });
+  const createdBy = `telegram:${context.userId}`;
+  const approvalRequest = await createFinanceApproval({ idCliente: clean, fatura: result.fatura, createdBy });
+  const approval = approvalRequest.approval;
+
+  if (approvalRequest.created) await notifyFinanceApprovalEvent("created", approval);
+
+  await auditLog(context, {
+    action,
+    status: approvalRequest.created ? "approval_created" : "approval_existing",
+    clientId: clean,
+    resultCount: 1,
+    faturaIds: [result.fatura.id],
+    approvalId: approval.id,
+  });
+
+  const keyboard = approval.status === "approved"
+    ? mergeKeyboards(buildFaturaActionsKeyboard(clean, result.fatura, { includeManualApproval: false }), buildManualSentKeyboard(approval.id))
+    : buildFaturaActionsKeyboard(clean, result.fatura, { includeManualApproval: false, approvalId: approval.id });
+
   await sendTelegramMessage(
     context.chatId,
     `🧾 Reenvio assistido preparado
@@ -974,10 +997,13 @@ async function replyReenvioBoletoAssistido(context: AuditContext, idCliente: str
 Cliente: ${escapeHtml(clean)}
 ${formatFatura(result.fatura)}
 
+Protocolo interno: <code>${escapeHtml(approval.id.slice(0, 8))}</code>
+Status: ${escapeHtml(statusLabelAprovacao(approval.status))}
+
 O sistema não enviou e-mail, WhatsApp, SMS nem alterou o IXC.
 
-Use os botões para copiar os dados e, se fizer o envio manual fora do sistema, registre a aprovação/envio para auditoria.`,
-    buildFaturaActionsKeyboard(clean, result.fatura)
+Use os botões para conferir/copiar os dados. Para seguir com envio manual, aprove o protocolo e depois registre quando o envio for feito fora do sistema.`,
+    keyboard
   );
 }
 
@@ -1290,7 +1316,8 @@ ${escapeHtml(link)}` : "⚠️ Link/PDF do boleto não retornado pelo IXC nesta 
   await sendTelegramMessage(context.chatId, "Item de fatura não reconhecido.");
 }
 
-function buildFaturaActionsKeyboard(idCliente: string, fatura: IxcFatura): ReplyMarkup | undefined {
+function buildFaturaActionsKeyboard(idCliente: string, fatura: IxcFatura, options: { includeManualApproval?: boolean; approvalId?: string } = {}): ReplyMarkup | undefined {
+  const includeManualApproval = options.includeManualApproval ?? true;
   const linhaDigitavel = fatura.linha_digitavel || fatura.codigo_barras || fatura.boleto;
   const pix = fatura.pix_copia_cola || fatura.pix;
   const link = fatura.link || fatura.gateway_link;
@@ -1303,11 +1330,73 @@ function buildFaturaActionsKeyboard(idCliente: string, fatura: IxcFatura): Reply
   row2.push({ text: "📝 Copiar mensagem cliente", callback_data: `fatura_item:mensagem:${idCliente}` });
   if (pix) row2.push({ text: "🔳 QR PIX", callback_data: `fatura_item:qr:${idCliente}` });
   if (pix) row2.push({ text: "📋 PIX copia e cola", callback_data: `fatura_item:pix:${idCliente}` });
-  row3.push({ text: "✅ Aprovar envio manual", callback_data: `fatura_item:aprovar:${idCliente}` });
+  if (includeManualApproval) row3.push({ text: "✅ Aprovar envio manual", callback_data: `fatura_item:aprovar:${idCliente}` });
+  if (options.approvalId) {
+    row3.push({ text: "✅ Aprovar reenvio", callback_data: `approval_decide:approve:${options.approvalId}` });
+    row3.push({ text: "❌ Rejeitar", callback_data: `approval_decide:reject:${options.approvalId}` });
+  }
   void link;
 
   const inline_keyboard = [row1, row2, row3].filter((row) => row.length > 0);
   return inline_keyboard.length ? { inline_keyboard } : undefined;
+}
+
+async function replyDecisaoAprovacaoTelegram(context: AuditContext, approvalId: string, action: string) {
+  const decision = action === "approve" ? "approve" : action === "reject" ? "reject" : null;
+  if (!decision) {
+    await sendTelegramMessage(context.chatId, "⚠️ Ação de aprovação inválida.");
+    return;
+  }
+
+  const approval = await decideFinanceApproval({
+    id: approvalId,
+    action: decision,
+    note: decision === "approve"
+      ? "Aprovado pelo Telegram para envio manual/reenvio assistido. Sem disparo automático."
+      : "Rejeitado pelo Telegram. Sem disparo automático.",
+    decidedBy: `telegram:${context.userId}`,
+  });
+
+  if (!approval) {
+    await sendTelegramMessage(context.chatId, "⚠️ Aprovação não encontrada.");
+    return;
+  }
+
+  await notifyFinanceApprovalEvent(decision === "approve" ? "approved" : "rejected", approval);
+  await auditLog(context, {
+    action: "finance_approval_decide_telegram",
+    status: approval.status,
+    clientId: approval.idCliente,
+    faturaId: approval.faturaId,
+    approvalId: approval.id,
+  });
+
+  if (approval.status === "approved") {
+    await sendTelegramMessage(
+      context.chatId,
+      [
+        `✅ Reenvio aprovado para envio manual — fatura ${escapeHtml(approval.faturaId)}`,
+        `Protocolo: ${escapeHtml(approval.id.slice(0, 8))}`,
+        `Cliente: ${escapeHtml(approval.idCliente)}`,
+        "",
+        "Nenhuma mensagem foi enviada automaticamente ao cliente.",
+        "Envie manualmente após conferência final e depois marque como enviado.",
+      ].join("\n"),
+      buildManualSentKeyboard(approval.id)
+    );
+    return;
+  }
+
+  await sendTelegramMessage(
+    context.chatId,
+    [
+      `❌ Reenvio rejeitado — fatura ${escapeHtml(approval.faturaId)}`,
+      `Protocolo: ${escapeHtml(approval.id.slice(0, 8))}`,
+      `Cliente: ${escapeHtml(approval.idCliente)}`,
+      "",
+      "Nenhuma mensagem foi enviada automaticamente ao cliente.",
+    ].join("\n")
+  );
 }
 
 async function replyAprovacaoEnvioManual(context: AuditContext, idCliente: string, fatura: IxcFatura) {
@@ -1564,7 +1653,7 @@ function getCallbackPermission(action: string, value?: string): TelegramPermissi
   }
   if (["cliente", "cliente360"].includes(action)) return "cliente";
   if (action === "contratos") return "contratos";
-  if (["faturas", "fatura_segura", "fatura_item", "approval_sent"].includes(action)) return "financeiro";
+  if (["faturas", "fatura_segura", "fatura_item", "approval_sent", "approval_decide"].includes(action)) return "financeiro";
   if (action === "aprovacoes_filter") return "aprovacoes";
   if (action === "status_shortcut" && value === "chamados") return "chamados";
   if (action === "status_shortcut" && value === "financeiro") return "financeiro";
