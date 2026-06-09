@@ -102,7 +102,7 @@ mv/remocao de data ou .env
 
 ## Healthcheck
 
-Health simples, sem IXC:
+Health simples, sem IXC e sem segredo:
 
 ```bash
 curl -sI http://127.0.0.1:3000/api/health
@@ -114,13 +114,15 @@ Health legado/app:
 curl -sI http://127.0.0.1:3000/api/ixc/webhook
 ```
 
-Diagnostico financeiro protegido:
+Diagnostico financeiro protegido por `MONITOR_SECRET`:
 
 ```bash
 curl -s -o /tmp/diag.out -w "%{http_code}\n" http://127.0.0.1:3000/api/financeiro/diagnostico
 ```
 
 Resultado esperado sem `MONITOR_SECRET`: `401`.
+
+Resultado esperado com `MONITOR_SECRET` valido: `200` com JSON minimo de disponibilidade, sem consultar IXC e sem retornar CPF, CNPJ, telefone, e-mail, linha digitavel, PIX, link de boleto ou dados financeiros individuais.
 
 ## Rollback
 
