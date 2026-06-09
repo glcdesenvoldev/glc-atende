@@ -73,10 +73,15 @@ export function isTelegramConfigured() {
   return Boolean(getTelegramConfig().botToken);
 }
 
-export function validateTelegramSecret(headerValue: string | null) {
+export function validateTelegramSecret(headerValue: string | null): { ok: true } | { ok: false; status: 401 | 503; error: string } {
   const { webhookSecret } = getTelegramConfig();
-  if (!webhookSecret) return true;
-  return headerValue === webhookSecret;
+  if (!webhookSecret) {
+    if (process.env.NODE_ENV === "production") return { ok: false, status: 503, error: "telegram_webhook_secret_not_configured" };
+    return { ok: true };
+  }
+  return headerValue === webhookSecret
+    ? { ok: true }
+    : { ok: false, status: 401, error: "unauthorized" };
 }
 
 export async function handleTelegramUpdate(update: TelegramUpdate) {
@@ -1445,9 +1450,7 @@ function getAttendantProfile(userId: number): AttendantProfile {
   const found = configured.find((profile) => profile.userId === userIdText);
   if (found) return found;
 
-  if (userIdText === "6384458827") return { userId: userIdText, department: "supervisor", permissions: ["*"] };
-
-  const restrictedUsers = parseCsvIds(process.env.TELEGRAM_RESTRICTED_HOURS_USERS || "8705085560");
+  const restrictedUsers = parseCsvIds(process.env.TELEGRAM_RESTRICTED_HOURS_USERS);
   if (restrictedUsers.includes(userIdText)) {
     return { userId: userIdText, department: "tecnico", permissions: ["menu", "status", "cliente", "contratos", "chamados"] };
   }
@@ -1469,11 +1472,11 @@ function parseAttendantProfiles(value?: string): AttendantProfile[] {
 
 function getAccessDenialReason(userId: number, chatId: number, chatType: string) {
   const { allowedUsers, allowedGroups } = getTelegramConfig();
-  const privateUsers = parseCsvIds(process.env.TELEGRAM_PRIVATE_USERS || "6384458827");
-  const restrictedUsers = parseCsvIds(process.env.TELEGRAM_RESTRICTED_HOURS_USERS || "8705085560");
+  const privateUsers = parseCsvIds(process.env.TELEGRAM_PRIVATE_USERS || process.env.TELEGRAM_ALLOWED_USERS);
+  const restrictedUsers = parseCsvIds(process.env.TELEGRAM_RESTRICTED_HOURS_USERS);
   const userIdText = String(userId);
 
-  if (chatType === "private" && !privateUsers.includes(userIdText)) {
+  if (chatType === "private" && privateUsers.length > 0 && !privateUsers.includes(userIdText)) {
     return {
       code: "private_access_denied",
       message: "⚠️ Acesso privado não autorizado. Use o grupo oficial para manter auditoria das consultas.",

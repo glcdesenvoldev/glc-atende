@@ -1,94 +1,200 @@
 # GLC Atende
 
-Painel inicial de atendimento da GLC Internet, com leitura de chamados do IXC Soft e webhook para notificação via Evolution API/WhatsApp.
+Painel e bot interno da GLC Internet para atendimento, consultas IXC, financeiro seguro, Telegram, Evolution API e automacoes assistidas.
 
-## Variáveis de ambiente
+## Estado de producao
 
-Copie `.env.example` e configure os valores reais no ambiente local/Railway:
+- Aplicacao principal: `glc-atende`
+- Stack: Next.js 16, TypeScript, Docker e Traefik
+- Dominio publico: `https://atende.glcinternet.com.br`
+- Porta interna do app: `127.0.0.1:3000`
+- Reverse proxy: Traefik em `80/443`
+- Acesso operacional: SSH via Tailscale usando usuario `openclaw`
+- Evolution API: local em `127.0.0.1:8080`
+- IXC: modo read-only por padrao
+- Telegram: bot interno com allowlist, perfis e webhook secret
 
-```bash
-cp .env.example .env.local
+Railway/Vercel nao sao o caminho principal de producao atual. O deploy real do GLC Atende roda em VPS com Docker. O `Caddyfile.example` fica apenas como referencia historica/alternativa, caso um proxy diferente do Traefik seja adotado.
+
+## Arquitetura resumida
+
+```text
+Internet
+  -> Traefik 80/443
+    -> glc-atende 127.0.0.1:3000
+
+srv1652531
+  -> acesso operacional via Tailscale/SSH
+    -> srv1541068 /docker/glc-atende
+
+glc-atende
+  -> IXC API read-only
+  -> Telegram Bot API
+  -> Evolution API local
+  -> arquivos persistentes em DATA_DIR
 ```
 
-Obrigatórias para IXC real:
+## Principais recursos
 
-- `IXC_URL`
-- `IXC_TOKEN`
+- Dashboard interno protegido.
+- Webhook IXC para chamados.
+- Bot Telegram interno.
+- Consulta de chamados, clientes, contratos e faturas.
+- Ficha Cliente 360.
+- Fatura segura: bloqueia zero ou multiplas faturas.
+- Diagnostico financeiro IXC read-only.
+- `/inadimplentes`, `/sem_boleto`, `/rf`.
+- Reenvio assistido de boleto com fila de aprovacao.
+- Webhook Evolution para entrada WhatsApp, sem resposta automatica ao cliente.
+- Regua de cobranca em modo controlado/bloqueado por flag.
+- Auditoria e retencao de logs.
 
-Obrigatórias para disparo via WhatsApp:
+## Variaveis de ambiente
 
-- `EVOLUTION_API_URL`
-- `EVOLUTION_API_KEY`
-- `EVOLUTION_INSTANCE`
-- `TELEFONE_GILSON`
+Use `.env.example` como lista de nomes e comentarios. Preencha valores reais apenas no servidor/ambiente seguro.
 
-Obrigatórias para o bot interno do Telegram:
+Regras:
 
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_WEBHOOK_SECRET`
-- `TELEGRAM_ALLOWED_USERS` — IDs dos usuários autorizados, separados por vírgula.
-- `TELEGRAM_ALLOWED_GROUPS` ou `TELEGRAM_GROUP_ID` — ID do grupo privado autorizado.
+- Nunca commitar `.env`.
+- Nunca commitar backups `.env.backup-*`.
+- Nunca expor tokens, senhas, cookies, certificados ou chaves privadas.
+- Em producao, `TELEGRAM_WEBHOOK_SECRET` deve estar configurado; webhook Telegram sem secret retorna erro.
+- `IXC_WRITE_ENABLED` deve ficar ausente ou diferente de `1` ate aprovacao formal para escrita IXC.
+- `BILLING_CADENCE_WHATSAPP_ENABLED` deve ficar desabilitado ate aprovacao para envio real ao cliente.
 
-Comandos iniciais do Telegram:
+## Endpoints principais
 
-- `/chamados` — lista chamados abertos.
-- `/cliente ID|telefone|nome` — consulta cliente.
-- `/faturas ID_CLIENTE` — lista faturas abertas/localizadas.
-- `/pix` e `/boleto` ficam bloqueados nesta fase por segurança; primeiro validar endpoints e permissões.
+### Publicos/controlados
 
-Webhook do Telegram:
+- `GET /api/health`: health simples, sem IXC, sem variaveis e sem dados de cliente.
+- `GET /api/ixc/webhook`: healthcheck do app.
+- `POST /api/ixc/webhook`: protegido por `IXC_WEBHOOK_SECRET`.
+- `POST /api/telegram/webhook`: protegido por `TELEGRAM_WEBHOOK_SECRET`.
+- `POST /api/evolution/webhook`: protegido por `EVOLUTION_WEBHOOK_SECRET`.
 
-```txt
-/api/telegram/webhook
+### Internos/protegidos
+
+- `/dashboard`
+- `/api/chamados`
+- `/api/cliente360`
+- `/api/financeiro/*`
+- `/api/financeiro/diagnostico`: decisao atual: endpoint interno por `MONITOR_SECRET`, liberado do proxy de sessao para permitir health/monitoramento seguro por segredo.
+
+## Telegram
+
+Comandos principais:
+
+```text
+/menu
+/status_glc ou /sg
+/resumo_dia ou /rd
+/chamados
+/cliente TERMO ou /c TERMO
+/cliente360 TERMO ou /360 TERMO
+/contratos TERMO
+/faturas ID_CLIENTE
+/fatura_segura ID_CLIENTE ou /fs ID_CLIENTE
+/reenvio_boleto ID_CLIENTE ou /rb ID_CLIENTE
+/boleto ID_CLIENTE
+/resumo_financeiro ou /rf
+/inadimplentes [limite]
+/sem_boleto [limite]
+/aprovacoes
 ```
 
-Ao configurar o webhook no BotFather/API Telegram, usar `TELEGRAM_WEBHOOK_SECRET` no header `secret_token`.
+Seguranca:
 
-Sem `IXC_TOKEN`, o painel usa dados mockados para desenvolvimento. Sem credenciais completas da Evolution API, o webhook apenas registra a mensagem no log e não envia WhatsApp.
+- Acesso por allowlist de usuario/grupo.
+- Perfis por `TELEGRAM_ATTENDANTS`.
+- IDs devem ficar no `.env`, nao hardcoded.
+- Nenhum envio externo a cliente deve ocorrer sem aprovacao humana.
 
-⚠️ Não commitar `.env`, tokens, senhas ou chaves.
+## IXC
 
-## Healthcheck Railway
+Modo atual: **read-only**.
 
-O Railway usa:
+Permitido:
 
-```txt
-/api/ixc/webhook
-```
+- Consultar chamados.
+- Consultar cliente.
+- Consultar contratos.
+- Consultar faturas abertas.
+- Consultar dados/PDF de boleto.
+- Diagnosticar inadimplencia.
 
-O método `GET` desta rota retorna status 200 para healthcheck. O IXC deve chamar a mesma rota via `POST`.
+Bloqueado por padrao:
+
+- Responder chamado no IXC.
+- Fechar chamado no IXC.
+- Gerar/atualizar boleto.
+- Enviar boleto por IXC.
+- Baixar titulo/pagamento.
+
+Funcoes de escrita devem validar `IXC_WRITE_ENABLED=1` e ainda depender de aprovacao humana/documentada.
+
+## Evolution / WhatsApp
+
+Estado atual:
+
+- Evolution API roda localmente.
+- Webhook de entrada salva/notifica mensagens.
+- Envio automatico ao cliente continua bloqueado por politica e flag.
+
+Antes de qualquer envio real:
+
+- confirmar numero oficial;
+- confirmar texto;
+- confirmar opt-out;
+- confirmar horario permitido;
+- registrar auditoria;
+- exigir aprovacao humana.
+
+## Persistencia
+
+O app usa `DATA_DIR` para arquivos persistentes:
+
+- auditoria;
+- deduplicacao IXC;
+- aprovacoes financeiras;
+- dados auxiliares do dashboard.
+
+Dados financeiros como linha digitavel, PIX copia-e-cola e links de boleto sao sensiveis. A retencao deve ser curta e revisada antes de escalar para multioperador.
 
 ## Desenvolvimento local
 
-First, run the development server:
-
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install --frozen-lockfile
+pnpm exec tsc --noEmit
+pnpm lint
+pnpm build
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Deploy
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Ver `DEPLOY_RUNBOOK_GLC.md`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Resumo seguro:
 
-## Learn More
+```bash
+cd /docker/glc-atende
+pnpm exec tsc --noEmit
+pnpm lint
+pnpm build
+docker compose up -d --build glc-atende
+curl -sI http://127.0.0.1:3000/api/health
+```
 
-To learn more about Next.js, take a look at the following resources:
+Executar deploy em producao somente com aprovacao humana e janela apropriada.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Seguranca
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Ver `SECURITY_CHECKLIST_GLC.md`.
 
-## Deploy on Vercel
+Principios:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- minimo privilegio;
+- leitura antes de escrita;
+- auditoria sempre;
+- nenhum segredo em Git;
+- aprovacao humana para cliente, financeiro, DNS, banco, IXC escrita e WhatsApp/e-mail.

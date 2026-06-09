@@ -14,8 +14,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  if (!validateTelegramSecret(request.headers.get("x-telegram-bot-api-secret-token"))) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const secretValidation = validateTelegramSecret(request.headers.get("x-telegram-bot-api-secret-token"));
+  if (!secretValidation.ok) {
+    return NextResponse.json({ error: secretValidation.error }, { status: secretValidation.status });
   }
 
   try {

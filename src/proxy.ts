@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionCookieName, verifyDashboardSession } from "@/lib/dashboard-session";
 
 export async function proxy(request: NextRequest) {
+  if (request.nextUrl.pathname === "/api/financeiro/diagnostico") {
+    return NextResponse.next();
+  }
+
   const token = request.cookies.get(getSessionCookieName())?.value;
   const authenticated = await verifyDashboardSession(token);
   if (authenticated) return NextResponse.next();

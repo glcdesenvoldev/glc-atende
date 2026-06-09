@@ -10,6 +10,10 @@ import { isCnpj, isCpf } from "@/lib/lgpd";
 const IXC_BASE = process.env.IXC_URL || "https://ixc.glcinternet.com.br/webservice/v1";
 const IXC_TOKEN = process.env.IXC_TOKEN;
 
+function isIxcWriteEnabled() {
+  return process.env.IXC_WRITE_ENABLED === "1";
+}
+
 type IxcListResponse<T> = {
   page?: string;
   total?: string | number;
@@ -408,8 +412,9 @@ export const ixcApi = {
     return { ok: true, fatura, total: 1 };
   },
 
-  // Responde um chamado
-  async responderChamado(idChamado: string, mensagem: string, idUsuario = "10"): Promise<boolean> {
+  // Escrita IXC fica travada por padrao. Liberar somente com aprovacao humana e IXC_WRITE_ENABLED=1.
+  async responderChamado(idChamado: string, mensagem: string, idUsuario = process.env.IXC_DEFAULT_USER_ID || ""): Promise<boolean> {
+    if (!isIxcWriteEnabled() || !idUsuario) return false;
     const data = await ixcRequest<{ id?: string }>(
       "su_oss_mensagem",
       { id_oss: idChamado, mensagem, id_tecnico: idUsuario, tipo: "I" }
@@ -417,8 +422,9 @@ export const ixcApi = {
     return !!data?.id;
   },
 
-  // Fecha um chamado
+  // Escrita IXC fica travada por padrao. Liberar somente com aprovacao humana e IXC_WRITE_ENABLED=1.
   async fecharChamado(idChamado: string): Promise<boolean> {
+    if (!isIxcWriteEnabled()) return false;
     const data = await ixcRequest<{ id?: string }>(
       "su_oss_chamado",
       { id: idChamado, status: "F" }
