@@ -282,6 +282,15 @@ async function handleCommand(context: AuditContext, text: string) {
       await replyFaturaSegura(context, arg, command === "/fs" ? "fatura_segura_short_command" : "fatura_segura_command");
       return;
 
+    case "/reenvio_boleto":
+    case "/rb":
+      if (!arg) {
+        await sendTelegramMessage(context.chatId, "Use: /reenvio_boleto ID_CLIENTE\nAtalho: /rb 12345");
+        return;
+      }
+      await replyReenvioBoletoAssistido(context, arg, command === "/rb" ? "reenvio_boleto_short_command" : "reenvio_boleto_command");
+      return;
+
     case "/aprovacoes":
     case "/ap":
       await replyAprovacoesFinanceiras(context, arg);
@@ -311,12 +320,23 @@ async function handleCommand(context: AuditContext, text: string) {
       await replyPerfilAcesso(context);
       return;
 
-    case "/pix":
     case "/boleto":
+      if (arg && /^\d+$/.test(arg.trim())) {
+        await replyReenvioBoletoAssistido(context, arg, "boleto_assistido_command");
+        return;
+      }
       await auditLog(context, { action: command.slice(1), status: "blocked" });
       await sendTelegramMessage(
         context.chatId,
-        "⚠️ Geração/envio automático de PIX ou boleto ainda está bloqueado por segurança.\n\nUse /faturas ID_CLIENTE para consultar as faturas e copiar os dados disponíveis."
+        "⚠️ Envio automático de boleto continua bloqueado por segurança.\n\nPara preparar reenvio assistido, use /boleto ID_CLIENTE ou /rb ID_CLIENTE."
+      );
+      return;
+
+    case "/pix":
+      await auditLog(context, { action: command.slice(1), status: "blocked" });
+      await sendTelegramMessage(
+        context.chatId,
+        "⚠️ Geração/envio automático de PIX ainda está bloqueado por segurança.\n\nUse /faturas ID_CLIENTE para consultar as faturas e copiar os dados disponíveis."
       );
       return;
 
@@ -921,6 +941,46 @@ Ações disponíveis:
   );
 }
 
+async function replyReenvioBoletoAssistido(context: AuditContext, idCliente: string, action = "reenvio_boleto_assistido") {
+  const clean = idCliente.trim();
+  const result = await ixcApi.getFaturaSeguraCliente(clean);
+
+  if (!result.ok) {
+    await auditLog(context, { action, status: "blocked", clientId: clean, reason: result.reason, resultCount: result.total, faturaIds: result.items.slice(0, 10).map((item) => item.id) });
+
+    if (result.reason === "unavailable") {
+      await sendTelegramMessage(context.chatId, "⚠️ IXC indisponível ou sem resposta. Não prepare reenvio de boleto agora.");
+      return;
+    }
+
+    if (result.reason === "none") {
+      await sendTelegramMessage(context.chatId, `✅ Nenhuma fatura aberta/localizada para o cliente ${escapeHtml(clean)}. Reenvio não preparado.`);
+      return;
+    }
+
+    const lines = result.items.slice(0, 8).map(formatFaturaResumo);
+    await sendTelegramMessage(
+      context.chatId,
+      `🛑 Reenvio assistido bloqueado.\n\nCliente ${escapeHtml(clean)} possui ${result.total} faturas abertas/localizadas. Para evitar envio errado, escolha manualmente no IXC.\n\n${lines.join("\n\n")}`
+    );
+    return;
+  }
+
+  await auditLog(context, { action, status: "prepared", clientId: clean, resultCount: 1, faturaIds: [result.fatura.id] });
+  await sendTelegramMessage(
+    context.chatId,
+    `🧾 Reenvio assistido preparado
+
+Cliente: ${escapeHtml(clean)}
+${formatFatura(result.fatura)}
+
+O sistema não enviou e-mail, WhatsApp, SMS nem alterou o IXC.
+
+Use os botões para copiar os dados e, se fizer o envio manual fora do sistema, registre a aprovação/envio para auditoria.`,
+    buildFaturaActionsKeyboard(clean, result.fatura)
+  );
+}
+
 async function replyResumoFinanceiro(context: AuditContext) {
   const approvals = await listFinanceApprovals();
   const diagnostic = await buildFinanceDiagnostic({ limit: 20, auditSource: `telegram:${context.userId}:resumo_financeiro` }).catch(() => null);
@@ -1487,7 +1547,7 @@ function getCommandPermission(command: string): TelegramPermission | null {
   if (["/cliente", "/c", "/cliente360", "/360"].includes(command)) return "cliente";
   if (["/contratos", "/contrato"].includes(command)) return "contratos";
   if (["/chamados", "/abertos", "/chamado"].includes(command)) return "chamados";
-  if (["/faturas", "/boletos", "/fatura_segura", "/fs", "/pix", "/boleto", "/resumo_financeiro", "/rf", "/inadimplentes", "/atrasados", "/sem_boleto", "/sem_boletos"].includes(command)) return "financeiro";
+  if (["/faturas", "/boletos", "/fatura_segura", "/fs", "/reenvio_boleto", "/rb", "/pix", "/boleto", "/resumo_financeiro", "/rf", "/inadimplentes", "/atrasados", "/sem_boleto", "/sem_boletos"].includes(command)) return "financeiro";
   if (["/aprovacoes", "/ap"].includes(command)) return "aprovacoes";
   if (["/lgpd_limpeza"].includes(command)) return "admin";
   return null;
@@ -1689,6 +1749,8 @@ function helpText() {
     "Operador: acesso permitido seg-sex, 08:00-18:00",
     "/faturas ID_CLIENTE — lista faturas abertas/localizadas",
     "/fatura_segura ID_CLIENTE ou /fs ID_CLIENTE — só retorna se existir exatamente 1 fatura aberta",
+    "/reenvio_boleto ID_CLIENTE ou /rb ID_CLIENTE — prepara reenvio assistido, sem disparo automático",
+    "/boleto ID_CLIENTE — atalho seguro para preparar reenvio assistido",
     "/resumo_financeiro ou /rf — resumo rápido das aprovações financeiras",
     "/inadimplentes [limite] — clientes ativos com 3+ faturas vencidas, somente leitura",
     "/sem_boleto [limite] — clientes ativos sem fatura aberta localizada, somente leitura",
@@ -1697,7 +1759,7 @@ function helpText() {
     "/aprovacoes pendentes|aprovadas|enviadas|rejeitadas — filtra por status",
     "/aprovacoes ID_CLIENTE|ID_FATURA|PROTOCOLO — filtra aprovações",
     "/pix ID_FATURA — bloqueado por segurança nesta fase",
-    "/boleto ID_FATURA — bloqueado por segurança nesta fase",
+    "/boleto ID_CLIENTE — envio automático bloqueado; prepara somente reenvio assistido",
   ].join("\n");
 }
 
